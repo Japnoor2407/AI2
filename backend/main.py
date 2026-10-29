@@ -48,7 +48,11 @@ class InitRequest(BaseModel):
 
 
 class ModeRequest(BaseModel):
-    mode: str  # "FIXED_TIME", "ACTUATED", or "ADAPTIVE"
+    mode: str  # "FIXED_TIME", "ACTUATED", "ADAPTIVE", or "PREDICTION_ASSISTED"
+
+
+class SeekRequest(BaseModel):
+    target_step: int
 
 
 class EvalRequest(BaseModel):
@@ -276,7 +280,7 @@ def set_mode(req: ModeRequest):
     try:
         new_mode = ControllerMode(req.mode)
     except ValueError:
-        raise HTTPException(400, f"Invalid mode '{req.mode}'. Use FIXED_TIME, ACTUATED, or ADAPTIVE.")
+        raise HTTPException(400, f"Invalid mode '{req.mode}'. Use FIXED_TIME, ACTUATED, ADAPTIVE, or PREDICTION_ASSISTED.")
     app_state.mode = new_mode
     return {"status": "ok", "mode": new_mode.value}
 
@@ -332,6 +336,33 @@ def simulation_pause():
 def simulation_reset():
     app_state.reset()
     return {"status": "reset"}
+
+
+@app.post("/api/simulation/seek")
+def simulation_seek(req: SeekRequest):
+    """Fast-forwards or rewinds replay simulation to target_step."""
+    if not app_state._initialized:
+        app_state.initialize(
+            junction_id="AlankarChowk",
+            date="11",
+            duration_sec=1800,
+            mode=ControllerMode.ADAPTIVE,
+        )
+    obs = app_state.seek_to_step(req.target_step)
+    if obs is None:
+        return {"status": "finished", "message": "Seek reached end of dataset."}
+    return {
+        "status": "ok",
+        "step": obs.step,
+        "time": obs.timestamp_str,
+        "total_queue_pcu": obs.total_active_queue_pcu,
+        "total_throughput_pcu": obs.total_throughput_pcu,
+        "average_delay_sec": obs.average_delay_sec,
+        "active_phase_id": obs.controller_decision.active_phase_id,
+        "phase_name": obs.controller_decision.phase_name,
+        "signal_state": obs.controller_decision.signal_state.value,
+        "rationale": obs.controller_decision.decision_rationale,
+    }
 
 
 # ──────────────────────────────────────────────────────────
@@ -396,6 +427,23 @@ def evaluation_run(req: Optional[EvalRequest] = None):
     except Exception as e:
         logger.exception("Evaluation failed")
         raise HTTPException(500, f"Evaluation error: {e}")
+
+
+@app.post("/api/evaluation/corridor")
+def evaluation_corridor(
+    date: str = "11",
+    duration_sec: int = Query(default=300, ge=60, le=1800),
+):
+    """Executes a comparative benchmark of Independent vs Coordinated operation across the corridor."""
+    try:
+        from backend.simulation.corridor import run_corridor_evaluation
+        result = run_corridor_evaluation(date=date, duration_sec=duration_sec)
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"Corridor dataset file not found: {e}")
+    except Exception as e:
+        logger.exception("Corridor evaluation failed")
+        raise HTTPException(500, f"Corridor evaluation error: {e}")
 
 
 @app.get("/api/evaluation/export")
@@ -491,6 +539,11 @@ def controller_modes():
                 "value": "ADAPTIVE",
                 "label": "Adaptive (AI)",
                 "description": "Demand-scored adaptive controller with starvation prevention and anti-congestion override.",
+            },
+            {
+                "value": "PREDICTION_ASSISTED",
+                "label": "Prediction-Assisted (ML)",
+                "description": "Short-term ML demand forecasting integrated with proactive green duration allocation.",
             },
         ]
     }

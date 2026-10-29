@@ -1,18 +1,19 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  BarChart, Bar, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer,
 } from 'recharts'
 import {
   Play, Pause, RotateCcw, Activity, AlertTriangle,
   Download, Database, Zap, Clock, TrendingUp, Video,
-  BarChart3, GitFork, FileText, CheckCircle2, ShieldCheck, Brain,
+  MapPin, ChevronRight, Info, Shield, Brain, BarChart3,
+  CheckCircle, FileText,
 } from 'lucide-react'
 
 import { api } from '../services/api'
 import type {
   TrafficCurrent, ControllerStatus, EvaluationSummary,
-  HistoryPoint, DecisionLogEntry, AggregatedInterval,
+  HistoryPoint, DecisionLogEntry,
 } from '../types'
 import { JunctionViz } from '../components/JunctionViz'
 import { SignalBadge } from '../components/SignalBadge'
@@ -22,69 +23,171 @@ import { BenchmarkPanel } from '../components/BenchmarkPanel'
 import { SafetyAuditPanel } from '../components/SafetyAuditPanel'
 import { MLForecastPanel } from '../components/MLForecastPanel'
 
-// ─── Metric Card ────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-function MetricCard({
-  label, value, unit, sub, icon, accent = 'cyan',
+function trafficStatus(avgDelay: number | null): {
+  label: string; color: string; dot: string
+} {
+  if (avgDelay === null) return { label: 'Unknown', color: 'text-slate-400', dot: 'bg-slate-500' }
+  if (avgDelay < 10) return { label: 'Normal', color: 'text-emerald-400', dot: 'bg-emerald-400' }
+  if (avgDelay < 25) return { label: 'Busy', color: 'text-amber-400', dot: 'bg-amber-400' }
+  return { label: 'Congested', color: 'text-rose-400', dot: 'bg-rose-400' }
+}
+
+function simplifyRationale(raw: string | null | undefined): string {
+  if (!raw) return 'Monitoring all roads…'
+  const r = raw.toLowerCase()
+  if (r.includes('starv')) return 'A road has been waiting too long — giving it priority now.'
+  if (r.includes('high demand') || r.includes('demand score')) return 'Giving more green time to the busiest road right now.'
+  if (r.includes('fixed') || r.includes('pre-timed')) return 'Following a fixed schedule — signals change on a timer.'
+  if (r.includes('predict') || r.includes('forecast')) return 'Anticipating heavier traffic ahead — adjusting signals early.'
+  if (r.includes('yellow') || r.includes('clearance')) return 'Clearing the intersection safely before switching signals.'
+  if (r.includes('all_red') || r.includes('all-red')) return 'Brief safety pause — all roads are stopped momentarily.'
+  if (r.includes('phase')) return 'Switching to the next group of roads.'
+  return 'Monitoring live traffic and adjusting signals as needed.'
+}
+
+const MODE_OPTIONS = [
+  {
+    id: 'ADAPTIVE' as const,
+    label: 'Let AI Decide',
+    desc: 'The system automatically adjusts signal timing based on live traffic',
+    accent: 'bg-cyan-600 text-white',
+  },
+  {
+    id: 'ACTUATED' as const,
+    label: 'On-Demand',
+    desc: 'Signals extend green only when vehicles are detected waiting',
+    accent: 'bg-emerald-600 text-white',
+  },
+  {
+    id: 'FIXED_TIME' as const,
+    label: 'Timed Signals',
+    desc: 'All signals follow a fixed schedule regardless of traffic',
+    accent: 'bg-amber-600 text-white',
+  },
+] as const
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function SummaryCard({
+  label, value, sub, accent = 'cyan', icon,
 }: {
-  label: string; value: string | number; unit?: string; sub?: string;
-  icon?: React.ReactNode; accent?: 'cyan' | 'green' | 'amber' | 'red'
+  label: string; value: React.ReactNode; sub: string
+  accent?: 'cyan' | 'amber' | 'emerald' | 'rose'; icon: React.ReactNode
 }) {
-  const colors: Record<string, string> = {
-    cyan: 'text-cyan-400', green: 'text-emerald-400',
-    amber: 'text-amber-400', red: 'text-rose-400',
+  const ring: Record<string, string> = {
+    cyan: 'border-cyan-800/60',
+    amber: 'border-amber-800/50',
+    emerald: 'border-emerald-800/50',
+    rose: 'border-rose-800/50',
+  }
+  const ic: Record<string, string> = {
+    cyan: 'text-cyan-400',
+    amber: 'text-amber-400',
+    emerald: 'text-emerald-400',
+    rose: 'text-rose-400',
   }
   return (
-    <div className="card flex flex-col justify-between">
-      <div className="flex items-center justify-between text-slate-400 text-xs uppercase tracking-wider font-semibold">
-        <span>{label}</span>
+    <div className={`card border ${ring[accent]} flex flex-col gap-2`}>
+      <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wider ${ic[accent]}`}>
         {icon}
+        <span>{label}</span>
       </div>
-      <div className="my-2">
-        <span className={`text-2xl font-bold font-mono tracking-tight ${colors[accent]}`}>
-          {value}
-        </span>
-        {unit && <span className="text-sm font-normal text-slate-400 ml-1">{unit}</span>}
-      </div>
-      {sub && <div className="text-[11px] text-slate-500">{sub}</div>}
+      <div className="text-2xl font-bold text-white tracking-tight font-mono">{value}</div>
+      <div className="text-[12px] text-slate-400 leading-snug">{sub}</div>
+    </div>
+  )
+}
+
+function StatusDot({ running, paused }: { running: boolean; paused: boolean }) {
+  if (running && !paused) return (
+    <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+      Live
+    </span>
+  )
+  if (paused) return (
+    <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+      <span className="w-2 h-2 rounded-full bg-amber-400" />
+      Paused
+    </span>
+  )
+  return (
+    <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+      <span className="w-2 h-2 rounded-full bg-slate-600" />
+      Ready
+    </span>
+  )
+}
+
+// ─── Advanced sub-tab ────────────────────────────────────────────────────────
+
+type AdvancedSub = 'safety' | 'ml' | 'log' | 'dataset'
+
+function AdvancedTabBar({
+  sub, setSub,
+}: { sub: AdvancedSub; setSub: (s: AdvancedSub) => void }) {
+  const items: { id: AdvancedSub; label: string; icon: React.ReactNode }[] = [
+    { id: 'safety', label: 'Safety Monitor', icon: <Shield size={13} /> },
+    { id: 'ml',     label: 'AI Forecasting', icon: <Brain size={13} /> },
+    { id: 'log',    label: 'Decision Log',   icon: <FileText size={13} /> },
+    { id: 'dataset',label: 'Dataset Info',   icon: <Database size={13} /> },
+  ]
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {items.map(t => (
+        <button
+          key={t.id}
+          onClick={() => setSub(t.id)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+            sub === t.id
+              ? 'bg-slate-700 text-white'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          }`}
+        >
+          {t.icon}{t.label}
+        </button>
+      ))}
     </div>
   )
 }
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
+type Tab = 'overview' | 'map' | 'video' | 'compare' | 'advanced'
+
 export default function Dashboard() {
-  const [running, setRunning] = useState(false)
-  const [paused, setPaused] = useState(false)
-  const [speed, setSpeed] = useState(1000)
-  const [mode, setMode] = useState<'ADAPTIVE' | 'ACTUATED' | 'FIXED_TIME'>('ADAPTIVE')
-  const [status, setStatus] = useState<ControllerStatus | null>(null)
-  const [current, setCurrent] = useState<TrafficCurrent | null>(null)
-  const [history, setHistory] = useState<HistoryPoint[]>([])
+  const [running, setRunning]   = useState(false)
+  const [paused, setPaused]     = useState(false)
+  const [speed, setSpeed]       = useState(1000)
+  const [mode, setMode]         = useState<'ADAPTIVE' | 'PREDICTION_ASSISTED' | 'ACTUATED' | 'FIXED_TIME'>('ADAPTIVE')
+  const [status, setStatus]     = useState<ControllerStatus | null>(null)
+  const [current, setCurrent]   = useState<TrafficCurrent | null>(null)
+  const [history, setHistory]   = useState<HistoryPoint[]>([])
   const [evalSummary, setEvalSummary] = useState<EvaluationSummary | null>(null)
   const [decisionLog, setDecisionLog] = useState<DecisionLogEntry[]>([])
   const [evalRunning, setEvalRunning] = useState(false)
-  const [activeTab, setActiveTab] = useState<'overview' | 'video' | 'junction' | 'monitoring' | 'benchmark' | 'safety' | 'ml' | 'evaluation' | 'log' | 'dataset'>('overview')
-  const [monitoringUnit, setMonitoringUnit] = useState<'10min' | '1sec'>('10min')
-  const [overviewGraphUnit, setOverviewGraphUnit] = useState<'10min' | '1sec'>('10min')
-  const [aggregated10Min, setAggregated10Min] = useState<AggregatedInterval[]>([])
   const [apiError, setApiError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<Tab>('overview')
+  const [advSub, setAdvSub]     = useState<AdvancedSub>('safety')
+  const [showModeTooltip, setShowModeTooltip] = useState<string | null>(null)
+  const [sliderPos, setSliderPos] = useState<number | null>(null)
+  const seekDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchAll = useCallback(async () => {
     try {
-      const [st, cur, hist, dl, agg] = await Promise.all([
+      const [st, cur, hist, dl] = await Promise.all([
         api.controllerStatus(),
         api.trafficCurrent(),
         api.trafficHistory(300),
         api.decisionLog(50),
-        api.trafficAggregated(600).catch(() => null),
       ])
       setStatus(st)
       if (cur?.step !== undefined) setCurrent(cur)
       setHistory((hist?.history || []).slice(-150))
       setDecisionLog(dl?.log || [])
-      if (agg?.intervals) setAggregated10Min(agg.intervals)
       setApiError(null)
     } catch (e: unknown) {
       setApiError(e instanceof Error ? e.message : 'API error')
@@ -127,9 +230,32 @@ export default function Dashboard() {
     await fetchAll()
   }
 
-  const handleModeSwitch = async (m: 'ADAPTIVE' | 'ACTUATED' | 'FIXED_TIME') => {
+  const handleModeSwitch = async (m: 'ADAPTIVE' | 'PREDICTION_ASSISTED' | 'ACTUATED' | 'FIXED_TIME') => {
     setMode(m)
     await api.setMode(m)
+  }
+
+  const handleSeek = async (targetStep: number) => {
+    try {
+      await api.simulationSeek(targetStep)
+      await fetchAll()
+    } catch (e: unknown) { console.error(e) }
+  }
+
+  const onSliderChange = (newVal: number) => {
+    setSliderPos(newVal)
+    if (seekDebounceRef.current) clearTimeout(seekDebounceRef.current)
+    seekDebounceRef.current = setTimeout(async () => {
+      await handleSeek(newVal)
+      setSliderPos(null)
+    }, 150)
+  }
+
+  const onSliderCommit = async (newVal?: number) => {
+    if (seekDebounceRef.current) clearTimeout(seekDebounceRef.current)
+    const target = newVal !== undefined ? newVal : (sliderPos ?? curStep)
+    setSliderPos(null)
+    await handleSeek(target)
   }
 
   const runEvaluation = async () => {
@@ -154,77 +280,88 @@ export default function Dashboard() {
 
   const ctrl = current?.controller
 
-  const tabs = [
-    { id: 'overview',   label: 'Overview', icon: <Activity size={15} /> },
-    { id: 'video',      label: 'CCTV Video Feed', icon: <Video size={15} /> },
-    { id: 'junction',   label: 'Junction View', icon: <GitFork size={15} /> },
-    { id: 'monitoring', label: '10-Min Graphs', icon: <BarChart3 size={15} /> },
-    { id: 'benchmark',  label: '3-Way Benchmark', icon: <TrendingUp size={15} /> },
-    { id: 'safety',     label: 'Safety Audit', icon: <ShieldCheck size={15} /> },
-    { id: 'ml',         label: 'ML Demand Forecaster', icon: <Brain size={15} /> },
-    { id: 'evaluation', label: 'Evaluation', icon: <CheckCircle2 size={15} /> },
-    { id: 'log',        label: 'Decision Log', icon: <FileText size={15} /> },
-    { id: 'dataset',    label: 'Dataset', icon: <Database size={15} /> },
-  ] as const
+  // Derived summary values
+  const approaches = current?.approaches ? Object.values(current.approaches) : []
+  const busyRoads  = approaches.filter(a => a.queue_pcu > 2).length
+  const avgDelay   = current?.average_delay_sec ?? null
+  const throughput = current?.total_throughput_pcu ?? null
+  const tStatus    = trafficStatus(avgDelay)
+  const totalStep  = status?.total_steps ?? 1920
+  const curStep    = status?.step ?? 0
+  const timeLabel  = current?.timestamp ?? (status?.date ? `${status.date}` : '09:00:00')
+
+  const displayStep = sliderPos !== null ? sliderPos : curStep
+  const calcTime = (step: number) => {
+    const totalSec = 9 * 3600 + step
+    const h = Math.floor(totalSec / 3600) % 24
+    const m = Math.floor((totalSec % 3600) / 60)
+    const s = totalSec % 60
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+  const displayTime = sliderPos !== null ? calcTime(sliderPos) : timeLabel
+
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'overview', label: 'Overview',          icon: <Activity size={14} /> },
+    { id: 'map',      label: 'Traffic Map',        icon: <MapPin size={14} /> },
+    { id: 'video',    label: 'Live Camera',        icon: <Video size={14} /> },
+    { id: 'compare',  label: 'Compare Strategies', icon: <BarChart3 size={14} /> },
+    { id: 'advanced', label: 'Advanced',           icon: <ChevronRight size={14} /> },
+  ]
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* Top Operations Header */}
-      <header className="bg-slate-900 border-b border-slate-800 px-6 py-3.5 sticky top-0 z-30 shadow-md">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <header className="bg-slate-900 border-b border-slate-800 px-5 py-3 sticky top-0 z-30 shadow-sm">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+
+          {/* Brand */}
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-cyan-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-              <Zap size={20} />
+            <div className="w-8 h-8 rounded-lg bg-cyan-600/20 border border-cyan-600/30 flex items-center justify-center text-cyan-400 shrink-0">
+              <Zap size={18} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-base font-bold tracking-tight text-white">
-                  Adaptive Traffic Signal Optimization Agent
-                </span>
-                <span className="text-[11px] font-semibold bg-cyan-950 text-cyan-300 border border-cyan-700/60 px-2 py-0.5 rounded">
-                  SIH1607
-                </span>
-              </div>
-              <div className="text-xs text-slate-400">
-                Pune Heterogeneous CCTV Dataset · Alankar Chowk
-              </div>
+              <div className="text-sm font-bold text-white leading-tight">Traffic Overview — Alankar Chowk, Pune</div>
+              <div className="text-[11px] text-slate-400 leading-tight">See live traffic conditions and how the system is managing congestion.</div>
             </div>
           </div>
 
+          {/* Error */}
           {apiError && (
-            <div className="flex items-center gap-2 text-rose-400 text-xs border border-rose-800/60 bg-rose-950/40 px-3 py-1.5 rounded">
-              <AlertTriangle size={14} /> {apiError}
+            <div className="flex items-center gap-2 text-rose-400 text-xs border border-rose-800/50 bg-rose-950/30 px-3 py-1.5 rounded-lg">
+              <AlertTriangle size={13} /> {apiError}
             </div>
           )}
 
+          {/* Right: status + clock */}
           <div className="flex items-center gap-4">
+            <StatusDot running={running} paused={paused} />
+            <div className="h-5 w-px bg-slate-800" />
             <div className="text-right">
-              <div className="text-xs text-slate-400">Simulation Clock</div>
-              <div className="text-sm font-mono font-bold text-white">
-                {current?.timestamp || '09:00:34'}
+              <div className="text-[10px] text-slate-500 uppercase tracking-wider">Time</div>
+              <div className="text-sm font-mono font-bold text-white">{timeLabel}</div>
+            </div>
+            <div className="text-right hidden sm:block">
+              <div className="text-[10px] text-slate-500 uppercase tracking-wider">Progress</div>
+              <div className="text-xs font-mono text-slate-300">
+                {curStep} <span className="text-slate-600">/</span> {totalStep}
               </div>
             </div>
-            <div className="h-8 w-px bg-slate-800" />
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400">
-                Step <span className="font-mono text-white font-bold">{status?.step ?? 0}</span> / {status?.total_steps ?? 0}
-              </span>
-              {status?.signal_state && <SignalBadge state={status.signal_state} />}
-            </div>
+            {status?.signal_state && <SignalBadge state={status.signal_state} />}
           </div>
         </div>
       </header>
 
-      {/* Navigation Tabs Bar */}
-      <nav className="bg-slate-900/90 border-b border-slate-800/80 px-6 backdrop-blur-sm sticky top-[61px] z-20">
-        <div className="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto py-2">
+      {/* ── Nav Tabs ──────────────────────────────────────────────────────── */}
+      <nav className="bg-slate-900/90 border-b border-slate-800/80 px-5 backdrop-blur-sm sticky top-[57px] z-20">
+        <div className="max-w-7xl mx-auto flex items-center gap-1 overflow-x-auto py-2">
           {tabs.map(t => (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap ${
                 activeTab === t.id
-                  ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-950 border border-cyan-400/40'
+                  ? 'bg-cyan-600 text-white border border-cyan-500/40'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
             >
@@ -235,519 +372,475 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto w-full p-6 space-y-6 flex-1">
+      {/* ── Main Content ──────────────────────────────────────────────────── */}
+      <main className="max-w-7xl mx-auto w-full p-5 space-y-5 flex-1">
 
-        {/* ─── OVERVIEW TAB ─── */}
+        {/* ══ OVERVIEW TAB ══════════════════════════════════════════════════ */}
         {activeTab === 'overview' && (
-          <div className="space-y-6">
-            {/* Control Bar */}
-            <div className="card space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                {/* Controller Mode Switch */}
-                <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-800">
+          <div className="space-y-5">
+
+            {/* ── Controls ────────────────────────────────────────────────── */}
+            <div className="card space-y-4">
+
+              {/* Controller mode selector */}
+              <div>
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Management Strategy</div>
+                <div className="flex flex-wrap gap-2">
+                  {MODE_OPTIONS.map(opt => (
+                    <div key={opt.id} className="relative">
+                      <button
+                        onClick={() => handleModeSwitch(opt.id)}
+                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all border ${
+                          mode === opt.id
+                            ? `${opt.accent} border-transparent shadow-sm`
+                            : 'text-slate-400 bg-slate-900 border-slate-700 hover:text-white hover:border-slate-600'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                      <button
+                        onMouseEnter={() => setShowModeTooltip(opt.id)}
+                        onMouseLeave={() => setShowModeTooltip(null)}
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center"
+                      >
+                        <Info size={10} />
+                      </button>
+                      {showModeTooltip === opt.id && (
+                        <div className="absolute top-full left-0 mt-1.5 w-56 bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-[11px] text-slate-300 z-50 shadow-lg">
+                          {opt.desc}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {/* Predictive mode — in mode selector but styled subtly */}
                   <button
-                    onClick={() => handleModeSwitch('ADAPTIVE')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                      mode === 'ADAPTIVE'
-                        ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-950'
-                        : 'text-slate-400 hover:text-slate-200'
+                    onClick={() => handleModeSwitch('PREDICTION_ASSISTED')}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all border ${
+                      mode === 'PREDICTION_ASSISTED'
+                        ? 'bg-violet-600 text-white border-transparent shadow-sm'
+                        : 'text-slate-400 bg-slate-900 border-slate-700 hover:text-white hover:border-slate-600'
                     }`}
+                    title="Uses AI demand prediction to pre-adjust signals before congestion builds"
                   >
-                    ⚡ Adaptive (AI)
-                  </button>
-                  <button
-                    onClick={() => handleModeSwitch('ACTUATED')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                      mode === 'ACTUATED'
-                        ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    🚦 Actuated
-                  </button>
-                  <button
-                    onClick={() => handleModeSwitch('FIXED_TIME')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                      mode === 'FIXED_TIME'
-                        ? 'bg-amber-600 text-white shadow-sm shadow-amber-950'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    ⏱ Fixed-Time
+                    AI + Forecast
                   </button>
                 </div>
+              </div>
 
-                {/* Replay Controls */}
+              {/* Simulation controls */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
                 <div className="flex items-center gap-2">
                   {!running ? (
                     <button
                       onClick={handleStart}
-                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm shadow-emerald-950 transition-all"
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold shadow-sm transition-all"
                     >
-                      <Play size={14} /> Start Replay
+                      <Play size={15} /> Start
                     </button>
                   ) : (
                     <button
                       onClick={handlePause}
-                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-sm shadow-amber-950 transition-all"
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold shadow-sm transition-all"
                     >
-                      <Pause size={14} /> {paused ? 'Resume' : 'Pause'}
+                      <Pause size={15} /> {paused ? 'Resume' : 'Pause'}
                     </button>
                   )}
                   <button
                     onClick={handleReset}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-all"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium border border-slate-700 transition-all"
                   >
-                    <RotateCcw size={13} /> Reset
+                    <RotateCcw size={14} /> Reset
                   </button>
                 </div>
 
-                {/* Playback Speed Slider */}
-                <div className="flex items-center gap-2 text-xs text-slate-400">
-                  <span>Speed:</span>
-                  <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-md border border-slate-800 font-mono">
+                {/* Speed */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">Speed:</span>
+                  <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-md border border-slate-800">
                     {[2000, 1000, 500, 200].map(s => (
                       <button
                         key={s}
                         onClick={() => setSpeed(s)}
                         className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
-                          speed === s
-                            ? 'bg-cyan-600 text-white'
-                            : 'text-slate-400 hover:text-slate-200'
+                          speed === s ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
                         }`}
                       >
-                        {s === 2000 ? '0.5×' : s === 1000 ? '1×' : s === 500 ? '2×' : '5×'}
+                        {s === 2000 ? '½×' : s === 1000 ? '1×' : s === 500 ? '2×' : '5×'}
                       </button>
                     ))}
                   </div>
-                </div>
-
-                {/* Live Status indicator */}
-                <div className="flex items-center gap-2 text-xs font-mono font-semibold">
-                  <span className={`w-2.5 h-2.5 rounded-full ${running && !paused ? 'bg-emerald-400 animate-ping' : paused ? 'bg-amber-400' : 'bg-slate-600'}`} />
-                  <span className={running && !paused ? 'text-emerald-400' : paused ? 'text-amber-400' : 'text-slate-500'}>
-                    {running && !paused ? 'LIVE REPLAY' : paused ? 'PAUSED' : 'STANDBY'}
-                  </span>
                 </div>
               </div>
 
-              {/* Decision Rationale Banner */}
-              {ctrl?.decision_rationale && (
-                <div className="text-xs text-cyan-300 bg-cyan-950/30 border border-cyan-800/50 rounded-lg p-2.5 font-mono flex items-center gap-2">
-                  <span className="text-sm">🤖</span>
-                  <span className="flex-1">{ctrl.decision_rationale}</span>
-                  <span className="text-[11px] text-slate-400 font-sans">
-                    Phase {ctrl.active_phase_id} · {ctrl.signal_state}
-                  </span>
+              {/* Timeline scrubber */}
+              <div className="flex items-center gap-3 pt-2 border-t border-slate-800">
+                <span className="text-[11px] text-slate-500 whitespace-nowrap">Timeline</span>
+                <span className="text-[11px] text-slate-600 font-mono whitespace-nowrap">09:00</span>
+                <button
+                  onClick={() => onSliderCommit(Math.max(0, curStep - 10))}
+                  disabled={curStep <= 0}
+                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded text-slate-300 text-[11px] font-mono transition-colors"
+                  title="Rewind 10 seconds"
+                >
+                  −10s
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(1, totalStep - 1)}
+                  value={displayStep}
+                  onChange={e => onSliderChange(Number(e.target.value))}
+                  onMouseUp={() => onSliderCommit()}
+                  onTouchEnd={() => onSliderCommit()}
+                  className="flex-1 accent-cyan-500 cursor-pointer h-1.5"
+                />
+                <button
+                  onClick={() => onSliderCommit(Math.min(totalStep - 1, curStep + 10))}
+                  disabled={curStep >= totalStep - 1}
+                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded text-slate-300 text-[11px] font-mono transition-colors"
+                  title="Forward 10 seconds"
+                >
+                  +10s
+                </button>
+                <span className="text-[11px] text-slate-600 font-mono whitespace-nowrap">09:30</span>
+                <span className="text-cyan-400 font-mono font-bold text-[11px] whitespace-nowrap min-w-[55px] text-right">
+                  {displayTime}
+                </span>
+              </div>
+
+              {/* Plain-English decision banner */}
+              <div className="pt-2 border-t border-slate-800">
+                <div className="flex items-start gap-2 text-sm text-slate-300 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2.5">
+                  <span className="shrink-0 text-base mt-0.5">💡</span>
+                  <span className="flex-1">{simplifyRationale(ctrl?.decision_rationale)}</span>
+                  {ctrl?.phase_name && (
+                    <span className="shrink-0 text-xs text-slate-500">{ctrl.phase_name}</span>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
 
-            {/* KPI Cards Grid */}
+            {/* ── 4 Summary Cards ─────────────────────────────────────────── */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <MetricCard
-                label="Estimated Queue"
-                value={current?.total_queue_pcu?.toFixed(1) ?? '—'}
-                unit="PCU"
-                icon={<Activity size={16} className="text-amber-400" />}
+              <SummaryCard
+                label="Busy Roads"
+                value={<>{busyRoads} <span className="text-base font-normal text-slate-400">/ {approaches.length}</span></>}
+                sub="Roads with high vehicle queues right now"
                 accent="amber"
-                sub="Hydrodynamic queuing model"
+                icon={<Activity size={14} />}
               />
-              <MetricCard
-                label="Average Delay"
-                value={current?.average_delay_sec?.toFixed(1) ?? '—'}
-                unit="s/veh"
-                icon={<Clock size={16} className="text-rose-400" />}
-                accent="red"
-                sub="Little's Law delay proxy"
+              <SummaryCard
+                label="Average Wait"
+                value={avgDelay !== null ? `${avgDelay.toFixed(0)}s` : '—'}
+                sub="Average time a vehicle waits at this junction"
+                accent="rose"
+                icon={<Clock size={14} />}
               />
-              <MetricCard
-                label="Throughput"
-                value={current?.total_throughput_pcu?.toFixed(0) ?? '—'}
-                unit="PCU"
-                icon={<TrendingUp size={16} className="text-emerald-400" />}
-                accent="green"
-                sub="Cumulative discharged vehicles"
+              <SummaryCard
+                label="Vehicles Passing"
+                value={throughput !== null ? Math.round(throughput).toLocaleString() : '—'}
+                sub="Total vehicles passed through since start"
+                accent="emerald"
+                icon={<TrendingUp size={14} />}
               />
-              <MetricCard
-                label="Active Strategy"
-                value={mode === 'ADAPTIVE' ? 'Adaptive' : mode === 'ACTUATED' ? 'Actuated' : 'Fixed-Time'}
-                icon={<Zap size={16} className="text-cyan-400" />}
-                accent="cyan"
-                sub={`Phase ${ctrl?.active_phase_id ?? 1} · ${ctrl?.signal_state ?? 'GREEN'}`}
+              <SummaryCard
+                label="Traffic Status"
+                value={
+                  <span className={tStatus.color}>
+                    <span className={`inline-block w-2.5 h-2.5 rounded-full mr-2 ${tStatus.dot}`} />
+                    {tStatus.label}
+                  </span>
+                }
+                sub={
+                  avgDelay !== null
+                    ? avgDelay < 10
+                      ? 'Traffic is flowing well. No significant delays.'
+                      : avgDelay < 25
+                      ? 'Moderate congestion. System is adapting.'
+                      : 'Heavy congestion detected. Priority adjustments active.'
+                    : 'Start the simulation to see live status.'
+                }
+                accent={
+                  avgDelay === null ? 'cyan'
+                    : avgDelay < 10 ? 'emerald'
+                    : avgDelay < 25 ? 'amber'
+                    : 'rose'
+                }
+                icon={<CheckCircle size={14} />}
               />
             </div>
 
-            {/* Real-time Video Stream & Live Queue Graph */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-              <TrafficVideoFeed data={current} />
-              
-              <div className="space-y-6">
-                {/* 4-Way Approach Status Summary */}
-                <div className="card space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <span className="text-sm font-bold text-slate-200">Approach Traffic Demand</span>
-                    <span className="text-xs text-slate-400 font-mono">IRC:106 PCU Standard</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {current?.approaches && Object.entries(current.approaches).map(([id, a]) => (
-                      <div key={id} className="bg-slate-900/70 border border-slate-800 rounded-lg p-2.5 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-white truncate max-w-[120px]">{a.name}</span>
-                          <SignalBadge state={a.signal} />
+            {/* ── Road Status + Queue Chart ────────────────────────────────── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+
+              {/* Per-road approach summary — plain English */}
+              <div className="card space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="text-sm font-bold text-slate-200">Road-by-Road Status</span>
+                  <span className="text-[11px] text-slate-500">Updated every second</span>
+                </div>
+                {approaches.length > 0 ? (
+                  <div className="space-y-2">
+                    {approaches.map(a => (
+                      <div
+                        key={a.direction}
+                        className="flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2.5"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-white truncate">{a.name}</div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            {a.queue_pcu > 0
+                              ? `${Math.round(a.queue_pcu * 1.2)} vehicles waiting · ${a.avg_wait_sec.toFixed(0)}s avg wait`
+                              : 'Road is clear'}
+                            {a.is_starving && (
+                              <span className="ml-2 text-amber-400 font-semibold">⚠ Waiting too long</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between text-xs font-mono text-slate-300">
-                          <span>Q: <strong className="text-amber-400">{a.queue_pcu.toFixed(1)}</strong> PCU</span>
-                          <span>{a.arrival_rate_pcu_per_min.toFixed(1)}/min</span>
-                        </div>
+                        <SignalBadge state={a.signal} />
                       </div>
                     ))}
                   </div>
+                ) : (
+                  <div className="text-sm text-slate-500 text-center py-8">
+                    Press <strong>Start</strong> to see live road conditions.
+                  </div>
+                )}
+              </div>
+
+              {/* Queue chart */}
+              <div className="card space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div>
+                    <div className="text-sm font-bold text-slate-200">Vehicles Waiting Over Time</div>
+                    <div className="text-[11px] text-slate-500">How many vehicles are queued at the junction</div>
+                  </div>
                 </div>
-
-                {/* PCU Traffic Progression Graph (10-Min Samples / 1-Sec Samples) */}
-                <div className="card space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-sm font-bold text-slate-200">
-                        {overviewGraphUnit === '10min' ? 'PCU Traffic Demand & Volume' : 'Live Queue Progression (PCU)'}
-                      </span>
-                      <div className="text-[11px] text-slate-400">
-                        {overviewGraphUnit === '10min' ? '10-Minute Unit Aggregated PCU Samples' : '1-Second Real-Time Telemetry'}
-                      </div>
+                <div className="h-52 w-full">
+                  {history.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={history} margin={{ top: 8, right: 8, left: -18, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                        <XAxis
+                          dataKey="time"
+                          tick={{ fontSize: 9, fill: '#64748b' }}
+                          tickFormatter={t => t.slice(0, 5)}
+                          interval="preserveStartEnd"
+                        />
+                        <YAxis tick={{ fontSize: 9, fill: '#64748b' }} />
+                        <Tooltip
+                          contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 11 }}
+                          formatter={(val: any) => [`${Number(val ?? 0).toFixed(1)} vehicles`, 'Queue']}
+                          labelFormatter={l => `Time: ${l}`}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="queue_pcu"
+                          stroke="#22d3ee"
+                          strokeWidth={2}
+                          dot={false}
+                          name="Vehicles waiting"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-500 text-sm gap-2">
+                      <Activity size={24} className="text-slate-700" />
+                      <span>Start simulation to view the live queue chart</span>
                     </div>
-
-                    <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-md border border-slate-800 text-[11px] font-mono">
-                      <button
-                        onClick={() => setOverviewGraphUnit('10min')}
-                        className={`px-2 py-0.5 rounded transition-all ${
-                          overviewGraphUnit === '10min' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        10-Min PCU
-                      </button>
-                      <button
-                        onClick={() => setOverviewGraphUnit('1sec')}
-                        className={`px-2 py-0.5 rounded transition-all ${
-                          overviewGraphUnit === '1sec' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        1-Sec Live
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="h-52 w-full">
-                    {overviewGraphUnit === '10min' ? (
-                      aggregated10Min.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={aggregated10Min} margin={{ top: 10, right: 10, left: -15, bottom: 15 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                            <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94a3b8' }} angle={-20} textAnchor="end" />
-                            <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} />
-                            <Tooltip
-                              contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 11 }}
-                              formatter={(val: any, name: any) => [`${val} PCU`, name === 'pcu_arrivals' ? 'PCU Arrivals' : name]}
-                            />
-                            <Bar dataKey="pcu_arrivals" fill="#06b6d4" radius={[3, 3, 0, 0]} name="PCU (10-min)" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="h-full flex items-center justify-center text-xs text-slate-500">
-                          Loading 10-minute PCU sample intervals...
-                        </div>
-                      )
-                    ) : (
-                      history.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={history} margin={{ top: 10, right: 10, left: -15, bottom: 15 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                            <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#64748b' }} tickFormatter={t => t.slice(0, 5)} />
-                            <YAxis tick={{ fontSize: 9, fill: '#64748b' }} />
-                            <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 11 }} />
-                            <Line type="monotone" dataKey="queue_pcu" stroke="#22d3ee" strokeWidth={2} dot={false} name="Queue (PCU)" />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="h-full flex items-center justify-center text-xs text-slate-500">
-                          Press Start Replay to observe real-time queue evolution.
-                        </div>
-                      )
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ─── CCTV VIDEO FEED TAB ─── */}
+        {/* ══ TRAFFIC MAP TAB ═══════════════════════════════════════════════ */}
+        {activeTab === 'map' && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+              <div>
+                <div className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                  <MapPin size={15} className="text-cyan-400" />
+                  Alankar Chowk — Live Intersection View
+                </div>
+                <JunctionViz data={current} />
+              </div>
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                  <Activity size={15} className="text-cyan-400" />
+                  Road Details
+                </div>
+                {current?.approaches
+                  ? Object.entries(current.approaches).map(([id, a]) => (
+                      <div key={id} className="card space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-white">{a.name}</span>
+                          <SignalBadge state={a.signal} />
+                        </div>
+                        <div className="grid grid-cols-3 gap-3 text-xs text-slate-400">
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wider text-slate-600 mb-0.5">Waiting</div>
+                            <span className="text-white font-semibold">{Math.round(a.queue_pcu * 1.2)} vehicles</span>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wider text-slate-600 mb-0.5">Arrival rate</div>
+                            <span className="text-white font-semibold">{a.arrival_rate_pcu_per_min.toFixed(0)}/min</span>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-wider text-slate-600 mb-0.5">Avg wait</div>
+                            <span className="text-white font-semibold">{a.avg_wait_sec.toFixed(0)}s</span>
+                          </div>
+                        </div>
+                        {a.is_starving && (
+                          <div className="text-amber-400 text-xs font-semibold bg-amber-950/30 border border-amber-800/60 px-2 py-1 rounded-md">
+                            ⚠ This road has been waiting too long — the system is requesting priority.
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  : <div className="text-slate-500 text-sm py-6 text-center">Start simulation to see approach data.</div>
+                }
+              </div>
+            </div>
+
+            {/* 10-Min historical charts below the map */}
+            <div className="card space-y-3">
+              <div className="text-sm font-bold text-slate-200">Historical Traffic Demand (10-Minute Blocks)</div>
+              <AggregatedTrafficCharts intervalSec={600} />
+            </div>
+          </div>
+        )}
+
+        {/* ══ LIVE CAMERA TAB ═══════════════════════════════════════════════ */}
         {activeTab === 'video' && (
-          <div className="space-y-6">
+          <div className="space-y-5">
             <TrafficVideoFeed data={current} />
-            <div className="card text-xs text-slate-400 space-y-2">
-              <div className="font-bold text-slate-200 text-sm flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-400" />
-                ICCC Real-Time Video Surveillance Integration
+            <div className="card text-sm text-slate-400 space-y-2">
+              <div className="font-semibold text-slate-200 flex items-center gap-2">
+                <Video size={16} className="text-cyan-400" /> About this feed
               </div>
               <p>
-                The video stream above replays the traffic arrivals documented in the <strong>Pune Police CCTV Dataset (Jan 2023)</strong>.
-                Vehicles spawn in accordance with the real empirical arrival rates, while the live signal state drives stop-line queuing
-                and intersection clearance. Object detection bounding boxes illustrate the YOLOv8 classification pipeline (Car, Motorbike, Bus, Truck).
+                This view replays real vehicle arrivals from the <strong>Pune Police CCTV Dataset (Jan 2023)</strong> for Alankar Chowk. Vehicles appear according to actual recorded counts. Object detection boxes show how the system identifies cars, motorbikes, buses, and trucks. The signal in the corner reflects live simulation state.
               </p>
             </div>
           </div>
         )}
 
-        {/* ─── JUNCTION VIEW TAB ─── */}
-        {activeTab === 'junction' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div>
-              <div className="text-sm font-semibold text-slate-300 mb-3">
-                4-Way Intersection Schematic · Alankar Chowk
-              </div>
-              <JunctionViz data={current} />
-            </div>
-            <div className="space-y-3">
-              <div className="text-sm font-semibold text-slate-300">Approach Telemetry</div>
-              {current?.approaches
-                ? Object.entries(current.approaches).map(([id, a]) => (
-                    <div key={id} className="card space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-white">{a.name}</span>
-                        <SignalBadge state={a.signal} />
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 text-xs text-slate-400 font-mono">
-                        <div>Queue: <strong className="text-white">{a.queue_pcu.toFixed(1)}</strong> PCU</div>
-                        <div>Rate: <strong className="text-white">{a.arrival_rate_pcu_per_min.toFixed(1)}</strong>/min</div>
-                        <div>Wait: <strong className="text-white">{a.avg_wait_sec.toFixed(1)}</strong>s</div>
-                      </div>
-                      {a.is_starving && (
-                        <div className="text-amber-400 text-xs font-bold bg-amber-950/40 border border-amber-800 p-1 rounded">
-                          ⚠ STARVATION WARNING: {a.time_since_served_sec.toFixed(0)}s without service
-                        </div>
-                      )}
-                    </div>
-                  ))
-                : <div className="text-slate-500 text-xs">Start simulation to see approach data.</div>
-              }
-            </div>
-          </div>
-        )}
-
-        {/* ─── 10-MIN GRAPHS / MONITORING TAB ─── */}
-        {activeTab === 'monitoring' && (
-          <div className="space-y-6">
-            {/* Unit Switcher */}
+        {/* ══ COMPARE STRATEGIES TAB ════════════════════════════════════════ */}
+        {activeTab === 'compare' && (
+          <div className="space-y-5">
+            {/* Quick evaluation controls (simple version) */}
             <div className="card flex flex-wrap items-center justify-between gap-4">
               <div>
-                <div className="text-sm font-bold text-white">Traffic Analysis Granularity</div>
-                <div className="text-xs text-slate-400">Switch between 10-minute aggregated blocks and instantaneous 1-second telemetry</div>
-              </div>
-              <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-800">
-                <button
-                  onClick={() => setMonitoringUnit('10min')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                    monitoringUnit === '10min'
-                      ? 'bg-cyan-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  📊 10-Minute Units
-                </button>
-                <button
-                  onClick={() => setMonitoringUnit('1sec')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                    monitoringUnit === '1sec'
-                      ? 'bg-cyan-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  ⚡ 1-Sec Telemetry
-                </button>
-              </div>
-            </div>
-
-            {/* Render 10-Min Graphs Component */}
-            {monitoringUnit === '10min' ? (
-              <AggregatedTrafficCharts intervalSec={600} />
-            ) : (
-              <div className="space-y-6">
-                <div className="card space-y-3">
-                  <div className="text-sm font-bold text-slate-200">Instantaneous Queue vs Delay</div>
-                  <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={history}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                        <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={t => t.slice(0, 5)} />
-                        <YAxis tick={{ fontSize: 10, fill: '#64748b' }} />
-                        <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 11 }} />
-                        <Legend wrapperStyle={{ fontSize: 11 }} />
-                        <Line type="monotone" dataKey="queue_pcu" stroke="#f59e0b" strokeWidth={2} dot={false} name="Queue (PCU)" />
-                        <Line type="monotone" dataKey="delay_sec" stroke="#ef4444" strokeWidth={2} dot={false} name="Delay (s)" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="card space-y-3">
-                  <div className="text-sm font-bold text-slate-200">Phase Timeline (Last 60 Steps)</div>
-                  <div className="h-56 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={history.slice(-60)}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                        <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={t => t.slice(3, 8)} />
-                        <YAxis tick={{ fontSize: 10, fill: '#64748b' }} domain={[0, 3]} />
-                        <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 6, fontSize: 11 }} />
-                        <Bar dataKey="phase_id" fill="#06b6d4" name="Active Phase ID" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ─── 3-WAY BENCHMARK TAB ─── */}
-        {activeTab === 'benchmark' && (
-          <BenchmarkPanel />
-        )}
-
-        {/* ─── SAFETY AUDIT TAB ─── */}
-        {activeTab === 'safety' && (
-          <SafetyAuditPanel />
-        )}
-
-        {/* ─── ML DEMAND FORECASTER TAB ─── */}
-        {activeTab === 'ml' && (
-          <MLForecastPanel />
-        )}
-
-        {/* ─── EVALUATION TAB ─── */}
-        {activeTab === 'evaluation' && (
-          <div className="space-y-6">
-            <div className="card flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <div className="text-sm font-bold text-white">Comparative Controller Benchmark</div>
-                <div className="text-xs text-slate-400">
-                  Evaluates both Fixed-Time and Demand-Adaptive controllers across 600s of identical Pune CCTV traffic demand
+                <div className="text-sm font-bold text-white">Compare Traffic Management Strategies</div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  Runs the same 10-minute traffic scenario under different strategies and shows which one works best.
                 </div>
               </div>
               <button
                 onClick={runEvaluation}
                 disabled={evalRunning}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md shadow-cyan-950 transition-all"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-sm font-semibold transition-all"
               >
                 <Activity size={14} className={evalRunning ? 'animate-spin' : ''} />
-                {evalRunning ? 'Evaluating...' : 'Run Benchmark (600s)'}
+                {evalRunning ? 'Comparing…' : 'Run Comparison'}
               </button>
             </div>
 
-            {evalSummary?.status === 'ok' && evalSummary.fixed_time && evalSummary.adaptive && (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {[
-                    { label: 'Mean Queue Reduction', val: evalSummary.improvements?.queue_reduction_percent, good: true },
-                    { label: 'Average Delay Reduction', val: evalSummary.improvements?.waiting_time_reduction_percent, good: true },
-                    { label: 'Throughput Improvement', val: evalSummary.improvements?.throughput_improvement_percent, good: true },
-                  ].map(({ label, val, good }) => (
-                    <div key={label} className="card text-center p-4">
-                      <div className="text-xs text-slate-400 mb-1 font-semibold">{label}</div>
-                      <div className={`text-3xl font-extrabold font-mono ${
-                        val === undefined ? 'text-slate-500' :
-                        (good ? val > 0 : val < 0) ? 'text-emerald-400' : 'text-rose-400'
-                      }`}>
-                        {val === undefined ? '—' : `${val > 0 ? '+' : ''}${val.toFixed(1)}%`}
-                      </div>
+            {/* Simple outcome cards if evaluation done */}
+            {evalSummary?.status === 'ok' && evalSummary.improvements && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  { label: 'Less queuing', val: evalSummary.improvements.queue_reduction_percent, desc: 'reduction in vehicles waiting' },
+                  { label: 'Shorter waits', val: evalSummary.improvements.waiting_time_reduction_percent, desc: 'reduction in average wait time' },
+                  { label: 'More flow', val: evalSummary.improvements.throughput_improvement_percent, desc: 'more vehicles passed through' },
+                ].map(({ label, val, desc }) => (
+                  <div key={label} className="card text-center py-6">
+                    <div className={`text-4xl font-extrabold font-mono mb-1 ${val > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {val > 0 ? '+' : ''}{val.toFixed(1)}%
                     </div>
-                  ))}
-                </div>
+                    <div className="text-sm font-semibold text-white mb-1">{label}</div>
+                    <div className="text-xs text-slate-400">{desc}</div>
+                  </div>
+                ))}
+              </div>
+            )}
 
-                {/* Side-by-Side Comparison Table */}
-                <div className="card overflow-x-auto">
+            {/* Full benchmark panel */}
+            <BenchmarkPanel />
+
+            {/* Export */}
+            {evalSummary?.status === 'ok' && (
+              <div className="flex gap-3">
+                <button onClick={() => exportEval('json')} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-white border border-slate-700">
+                  <Download size={14} /> Export JSON
+                </button>
+                <button onClick={() => exportEval('csv')} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-white border border-slate-700">
+                  <Download size={14} /> Export CSV
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ ADVANCED TAB ══════════════════════════════════════════════════ */}
+        {activeTab === 'advanced' && (
+          <div className="space-y-5">
+            <div className="card flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-white">Advanced Technical View</div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  Safety monitoring, AI forecasting, signal decision logs, and dataset details.
+                </div>
+              </div>
+              <AdvancedTabBar sub={advSub} setSub={setAdvSub} />
+            </div>
+
+            {advSub === 'safety'  && <SafetyAuditPanel />}
+            {advSub === 'ml'      && <MLForecastPanel />}
+
+            {advSub === 'log' && (
+              <div className="card space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="text-sm font-bold text-slate-200">Signal Decision Log</span>
+                  <span className="text-xs text-slate-400">Last {decisionLog.length} decisions</span>
+                </div>
+                <div className="overflow-x-auto max-h-[60vh]">
                   <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-slate-400 uppercase text-[11px] border-b border-slate-800 bg-slate-900/60">
-                        <th className="py-2.5 px-3 text-left">Performance Metric</th>
-                        <th className="py-2.5 px-3 text-right">Fixed-Time Baseline</th>
-                        <th className="py-2.5 px-3 text-right font-bold text-cyan-400">Demand-Adaptive</th>
-                        <th className="py-2.5 px-3 text-right">Improvement %</th>
+                    <thead className="sticky top-0 bg-slate-900">
+                      <tr className="text-slate-400 uppercase text-[10px] border-b border-slate-800">
+                        <th className="py-2 px-2 text-left">Step</th>
+                        <th className="py-2 px-2 text-left">Time</th>
+                        <th className="py-2 px-2 text-left">Signal</th>
+                        <th className="py-2 px-2 text-left">Road Group</th>
+                        <th className="py-2 px-2 text-left">Reason</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60 font-mono">
-                      {[
-                        { k: 'Mean Queue Length (PCU)', f: evalSummary.fixed_time.mean_queue_pcu, a: evalSummary.adaptive.mean_queue_pcu, imp: evalSummary.improvements?.queue_reduction_percent },
-                        { k: 'Max Queue Peak (PCU)', f: evalSummary.fixed_time.max_queue_pcu, a: evalSummary.adaptive.max_queue_pcu, imp: ((evalSummary.fixed_time.max_queue_pcu - evalSummary.adaptive.max_queue_pcu) / (evalSummary.fixed_time.max_queue_pcu || 1)) * 100 },
-                        { k: 'Average Delay (sec/veh)', f: evalSummary.fixed_time.average_wait_sec, a: evalSummary.adaptive.average_wait_sec, imp: evalSummary.improvements?.waiting_time_reduction_percent },
-                        { k: 'Discharged Throughput (PCU)', f: evalSummary.fixed_time.total_throughput_pcu, a: evalSummary.adaptive.total_throughput_pcu, imp: evalSummary.improvements?.throughput_improvement_percent },
-                        { k: 'Starvation Occurrences', f: evalSummary.fixed_time.starvation_occurrences, a: evalSummary.adaptive.starvation_occurrences, imp: null },
-                      ].map(({ k, f, a, imp }) => (
-                        <tr key={k} className="hover:bg-slate-900/40">
-                          <td className="py-2.5 px-3 text-slate-300 font-sans">{k}</td>
-                          <td className="py-2.5 px-3 text-right text-slate-400">{typeof f === 'number' ? f.toFixed(1) : f}</td>
-                          <td className="py-2.5 px-3 text-right font-bold text-cyan-400">{typeof a === 'number' ? a.toFixed(1) : a}</td>
-                          <td className="py-2.5 px-3 text-right font-bold text-emerald-400">
-                            {imp != null ? `${imp > 0 ? '+' : ''}${imp.toFixed(1)}%` : '—'}
+                    <tbody className="divide-y divide-slate-800/60 font-mono text-slate-300">
+                      {[...decisionLog].reverse().map((d, i) => (
+                        <tr key={i} className="hover:bg-slate-900/40">
+                          <td className="py-1.5 px-2 text-slate-500">{d.step}</td>
+                          <td className="py-1.5 px-2 text-slate-400">{d.time}</td>
+                          <td className="py-1.5 px-2"><SignalBadge state={d.signal} /></td>
+                          <td className="py-1.5 px-2 text-white font-sans">{d.phase_name}</td>
+                          <td className="py-1.5 px-2 text-slate-400 font-sans text-[11px]">
+                            {simplifyRationale(d.rationale)}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                  {decisionLog.length === 0 && (
+                    <div className="text-center text-slate-500 text-sm py-10">
+                      Start the simulation to record signal decisions.
+                    </div>
+                  )}
                 </div>
-
-                <div className="flex gap-3">
-                  <button onClick={() => exportEval('json')} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white border border-slate-700">
-                    <Download size={14} /> Export JSON Benchmark
-                  </button>
-                  <button onClick={() => exportEval('csv')} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white border border-slate-700">
-                    <Download size={14} /> Export Time-Series CSV
-                  </button>
-                </div>
-              </>
+              </div>
             )}
-          </div>
-        )}
 
-        {/* ─── DECISION LOG TAB ─── */}
-        {activeTab === 'log' && (
-          <div className="card space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="text-sm font-bold text-slate-200">Adaptive Decision Rationale Audit Log</span>
-              <span className="text-xs text-slate-400 font-mono">Last {decisionLog.length} steps</span>
-            </div>
-            <div className="overflow-x-auto max-h-[60vh]">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-slate-900">
-                  <tr className="text-slate-400 uppercase text-[10px] border-b border-slate-800">
-                    <th className="py-2 px-2 text-left">Step</th>
-                    <th className="py-2 px-2 text-left">Timestamp</th>
-                    <th className="py-2 px-2 text-left">Signal</th>
-                    <th className="py-2 px-2 text-left">Active Phase</th>
-                    <th className="py-2 px-2 text-left">Decision Rationale</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-mono text-slate-300">
-                  {[...decisionLog].reverse().map((d, i) => (
-                    <tr key={i} className="hover:bg-slate-900/40">
-                      <td className="py-1.5 px-2 text-slate-500">{d.step}</td>
-                      <td className="py-1.5 px-2 text-slate-400">{d.time}</td>
-                      <td className="py-1.5 px-2"><SignalBadge state={d.signal} /></td>
-                      <td className="py-1.5 px-2 text-white">{d.phase_name}</td>
-                      <td className="py-1.5 px-2 text-slate-400 font-sans text-[11px]">{d.rationale}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ─── DATASET TAB ─── */}
-        {activeTab === 'dataset' && (
-          <div className="space-y-4">
-            <DatasetInfo />
+            {advSub === 'dataset' && <DatasetInfo />}
           </div>
         )}
 
@@ -756,9 +849,11 @@ export default function Dashboard() {
   )
 }
 
+// ─── Dataset Info (unchanged logic, cleaner wording) ─────────────────────────
+
 function DatasetInfo() {
   const [summary, setSummary] = useState<Record<string, unknown> | null>(null)
-  const [schema, setSchema] = useState<Record<string, unknown> | null>(null)
+  const [schema,  setSchema]  = useState<Record<string, unknown> | null>(null)
 
   useEffect(() => {
     Promise.all([api.datasetSummary(), api.datasetSchema()]).then(([s, sc]) => {
@@ -768,39 +863,34 @@ function DatasetInfo() {
 
   return (
     <>
-      <div className="card space-y-3">
+      <div className="card space-y-4">
         <div className="flex items-center gap-2">
           <Database size={18} className="text-cyan-400" />
-          <span className="font-bold text-white text-base">Heterogeneous Traffic Count Dataset, Pune (Jan 2023)</span>
+          <span className="font-bold text-white">Pune Traffic Count Dataset (Jan 2023)</span>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-slate-400 font-mono">
-          <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
-            Junctions<br />
-            <span className="text-white font-bold text-base">{summary?.junction_count != null ? String(summary.junction_count) : '—'}</span>
-          </div>
-          <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
-            Total Files<br />
-            <span className="text-white font-bold text-base">{summary?.total_files != null ? String(summary.total_files) : '—'}</span>
-          </div>
-          <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
-            Camera FPS<br />
-            <span className="text-white font-bold text-base">25.0 fps</span>
-          </div>
-          <div className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
-            Coverage Period<br />
-            <span className="text-white font-bold text-base">Jan 11–18 2023</span>
-          </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-slate-400">
+          {[
+            { label: 'Junctions', val: summary?.junction_count },
+            { label: 'Total Files', val: summary?.total_files },
+            { label: 'Camera FPS', val: '25.0' },
+            { label: 'Coverage', val: 'Jan 11–18 2023' },
+          ].map(({ label, val }) => (
+            <div key={label} className="bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+              <div className="text-[10px] uppercase tracking-wider mb-1">{label}</div>
+              <span className="text-white font-bold text-base">{val != null ? String(val) : '—'}</span>
+            </div>
+          ))}
         </div>
       </div>
 
       <div className="card space-y-3">
-        <div className="text-sm font-bold text-slate-200">Schema & Indian IRC:106 PCU Equivalencies</div>
+        <div className="text-sm font-bold text-slate-200">Column Reference</div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="text-slate-400 text-[11px] uppercase border-b border-slate-800 bg-slate-900/60">
                 <th className="py-2.5 px-3 text-left">Column</th>
-                <th className="py-2.5 px-3 text-left">Data Type</th>
+                <th className="py-2.5 px-3 text-left">Type</th>
                 <th className="py-2.5 px-3 text-left">PCU Weight</th>
                 <th className="py-2.5 px-3 text-left">Description</th>
               </tr>

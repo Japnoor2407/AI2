@@ -3,17 +3,41 @@ interface SignalBadgeProps {
 }
 
 export function SignalBadge({ state }: SignalBadgeProps) {
-  const configs: Record<string, { label: string; cls: string }> = {
-    GREEN:   { label: 'GREEN',    cls: 'bg-green-900/40 text-green-400 border border-green-600' },
-    YELLOW:  { label: 'YELLOW',   cls: 'bg-yellow-900/40 text-yellow-400 border border-yellow-600' },
-    RED:     { label: 'RED',      cls: 'bg-red-900/40 text-red-400 border border-red-700' },
-    ALL_RED: { label: 'ALL-RED',  cls: 'bg-orange-900/40 text-orange-400 border border-orange-600' },
+  const configs: Record<string, { label: string; dot: string; cls: string }> = {
+    GREEN: {
+      label: 'GO',
+      dot: 'bg-emerald-400',
+      cls: 'bg-emerald-950/80 text-emerald-300 border-emerald-600/70',
+    },
+    YELLOW: {
+      label: 'CLEAR',
+      dot: 'bg-amber-400',
+      cls: 'bg-amber-950/80 text-amber-300 border-amber-600/70',
+    },
+    RED: {
+      label: 'STOP',
+      dot: 'bg-rose-400',
+      cls: 'bg-rose-950/80 text-rose-300 border-rose-600/70',
+    },
+    ALL_RED: {
+      label: 'ALL RED',
+      dot: 'bg-rose-400',
+      cls: 'bg-rose-950/80 text-rose-300 border-rose-600/70',
+    },
   }
-  const cfg = configs[state] || { label: state, cls: 'bg-slate-700 text-slate-300 border border-slate-600' }
+
+  const cfg = configs[state] || {
+    label: state,
+    dot: 'bg-slate-400',
+    cls: 'bg-slate-800 text-slate-300 border-slate-700',
+  }
+
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${cfg.cls}`}>
-      {cfg.label}
+    <span
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${cfg.cls} tracking-wider`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+      <span>{cfg.label}</span>
     </span>
   )
 }
-

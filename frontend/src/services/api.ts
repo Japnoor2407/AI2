@@ -35,6 +35,12 @@ export const api = {
     }),
   simulationPause: () => apiFetch('/api/simulation/pause', { method: 'POST' }),
   simulationReset: () => apiFetch('/api/simulation/reset', { method: 'POST' }),
+  simulationSeek: (targetStep: number) =>
+    apiFetch('/api/simulation/seek', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_step: targetStep }),
+    }),
   evaluationSummary: () => apiFetch('/api/evaluation/summary'),
   evaluationFullSummary: () => apiFetch('/api/evaluation/full-summary'),
   evaluationRun: (params?: object) =>

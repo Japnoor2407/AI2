@@ -44,6 +44,14 @@ class TrafficDemandForecaster:
         Builds lagged features chronologically per direction.
         Prevents any future target leakage.
         """
+        if (
+            df_arrivals is None
+            or df_arrivals.empty
+            or "Direction" not in df_arrivals.columns
+            or "pcu_arrivals" not in df_arrivals.columns
+        ):
+            return pd.DataFrame(), pd.Series()
+
         records = []
         for direction, group in df_arrivals.groupby("Direction"):
             g = group.sort_values("Time").copy().reset_index(drop=True)
@@ -159,6 +167,51 @@ class TrafficDemandForecaster:
         self.save_model()
         logger.info(f"ML Model trained: MAE={mae_ml:.4f} vs Persistence={mae_persistence:.4f}")
         return self.metrics
+
+    @property
+    def model_name(self) -> str:
+        if self.metrics and "model_type" in self.metrics:
+            return str(self.metrics["model_type"]).replace("_", " ").title()
+        return "Gradient Boosting Regressor"
+
+    def predict_next(
+        self,
+        history: List[Any],
+        horizon: int = 30,
+    ) -> List[float]:
+        """
+        Generates an autoregressive multi-step trajectory prediction for the next `horizon` seconds.
+        Accepts StepObservation objects, dicts, or raw numeric sequences.
+        """
+        if not history:
+            return [0.0] * horizon
+
+        recent_pcu: List[float] = []
+        for item in history:
+            if hasattr(item, "approaches"):
+                # Sum arrival PCUs across all approaches in StepObservation
+                step_pcu = sum(a.arrivals_last_step.to_pcu() for a in item.approaches.values())
+                recent_pcu.append(step_pcu)
+            elif isinstance(item, dict) and "total_queue_pcu" in item:
+                recent_pcu.append(float(item["total_queue_pcu"]))
+            elif isinstance(item, (int, float)):
+                recent_pcu.append(float(item))
+            else:
+                recent_pcu.append(0.0)
+
+        if not recent_pcu:
+            recent_pcu = [0.0]
+
+        predictions: List[float] = []
+        buffer = list(recent_pcu[-10:])
+        for _ in range(horizon):
+            pred = self.predict_short_term_arrivals(buffer, direction="UP")
+            predictions.append(round(pred, 2))
+            buffer.append(pred)
+            if len(buffer) > 15:
+                buffer.pop(0)
+
+        return predictions
 
     def predict_short_term_arrivals(
         self,

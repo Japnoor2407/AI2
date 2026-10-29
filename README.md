@@ -3,7 +3,7 @@
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/Frontend-React_19_Vite_TS-61DAFB?logo=react)](https://react.dev)
 [![TailwindCSS](https://img.shields.io/badge/Styling-Tailwind_CSS_v4-38B2AC?logo=tailwind-css)](https://tailwindcss.com)
-[![Tests](https://img.shields.io/badge/Tests-33%20Passed-success)](https://github.com/Japnoor2407/AI2)
+[![Tests](https://img.shields.io/badge/Tests-50%20Passed-success)](https://github.com/Japnoor2407/AI2)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## 1. Problem Statement (SIH1607)

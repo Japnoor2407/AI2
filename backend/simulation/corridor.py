@@ -117,11 +117,13 @@ class CoordinatedCorridor:
         # Safety enforcement Alankar
         curr_sig_a = self.sim_alankar.approaches["North_Approach"].current_signal
         dec_alankar, _ = self.safety_alankar.validate_and_enforce(
-            dec_alankar_raw,
-            dec_alankar_raw.active_phase_id,
-            curr_sig_a,
-            dec_alankar_raw.elapsed_in_phase,
-            self.sim_alankar.approaches,
+            decision=dec_alankar_raw,
+            approaches=self.sim_alankar.approaches,
+            current_step=self.step_count,
+            timestamp_str=ts,
+            current_active_phase_id=dec_alankar_raw.active_phase_id,
+            current_signal_state=curr_sig_a,
+            elapsed_in_state=dec_alankar_raw.elapsed_in_phase,
         )
         obs_alankar = self.sim_alankar.step(dec_alankar)
 
@@ -157,11 +159,13 @@ class CoordinatedCorridor:
         # Safety enforcement Jehangir
         curr_sig_j = self.sim_jehangir.approaches["South_Approach"].current_signal
         dec_jehangir, _ = self.safety_jehangir.validate_and_enforce(
-            dec_jehangir_raw,
-            dec_jehangir_raw.active_phase_id,
-            curr_sig_j,
-            dec_jehangir_raw.elapsed_in_phase,
-            self.sim_jehangir.approaches,
+            decision=dec_jehangir_raw,
+            approaches=self.sim_jehangir.approaches,
+            current_step=self.step_count,
+            timestamp_str=ts,
+            current_active_phase_id=dec_jehangir_raw.active_phase_id,
+            current_signal_state=curr_sig_j,
+            elapsed_in_state=dec_jehangir_raw.elapsed_in_phase,
         )
         obs_jehangir = self.sim_jehangir.step(dec_jehangir)
 
@@ -182,3 +186,69 @@ class CoordinatedCorridor:
         self.step_count += 1
         return record
 
+
+
+def run_corridor_evaluation(
+    date: str = "11",
+    duration_sec: int = 300,
+    travel_time_sec: int = 40,
+    spillback_threshold_pcu: float = 25.0,
+) -> Dict[str, Any]:
+    """
+    Runs a comparative evaluation of Independent vs Coordinated operation across the
+    Alankar Chowk -> Jehangir Chowk arterial corridor.
+    """
+    from backend.data.loader import DatasetAdapter
+    adapter = DatasetAdapter()
+    df_alankar = adapter.load_camera_arrivals("AlankarChowk", "a2", str(date), max_seconds=duration_sec + 120)
+    df_jehangir = adapter.load_camera_arrivals("JehangirChowk", "j1", str(date), max_seconds=duration_sec + 120)
+
+    # 1. Independent Run (no coordination)
+    corridor_indep = CoordinatedCorridor(df_alankar, df_jehangir, travel_time_sec, spillback_threshold_pcu)
+    ctrl_a_indep = AdaptiveController(phases=corridor_indep.layout_alankar.phases)
+    ctrl_j_indep = AdaptiveController(phases=corridor_indep.layout_jehangir.phases)
+    steps = min(duration_sec, corridor_indep.total_steps)
+
+    for _ in range(steps):
+        corridor_indep.step(ctrl_a_indep, ctrl_j_indep, enable_coordination=False)
+
+    q_indep = [r["total_corridor_queue_pcu"] for r in corridor_indep.history]
+    thru_indep = corridor_indep.total_corridor_throughput_pcu
+    spill_indep = corridor_indep.spillback_events
+
+    # 2. Coordinated Run
+    corridor_coord = CoordinatedCorridor(df_alankar, df_jehangir, travel_time_sec, spillback_threshold_pcu)
+    ctrl_a_coord = AdaptiveController(phases=corridor_coord.layout_alankar.phases)
+    ctrl_j_coord = AdaptiveController(phases=corridor_coord.layout_jehangir.phases)
+
+    for _ in range(steps):
+        corridor_coord.step(ctrl_a_coord, ctrl_j_coord, enable_coordination=True)
+
+    q_coord = [r["total_corridor_queue_pcu"] for r in corridor_coord.history]
+    thru_coord = corridor_coord.total_corridor_throughput_pcu
+    spill_coord = corridor_coord.spillback_events
+
+    mean_q_indep = sum(q_indep) / max(1, len(q_indep))
+    mean_q_coord = sum(q_coord) / max(1, len(q_coord))
+    q_reduction_pct = ((mean_q_indep - mean_q_coord) / max(1e-3, mean_q_indep)) * 100.0
+
+    return {
+        "status": "ok",
+        "duration_sec": steps,
+        "corridor": "AlankarChowk -> JehangirChowk",
+        "independent": {
+            "mean_queue_pcu": round(mean_q_indep, 2),
+            "throughput_pcu": round(thru_indep, 2),
+            "spillback_events": spill_indep,
+        },
+        "coordinated": {
+            "mean_queue_pcu": round(mean_q_coord, 2),
+            "throughput_pcu": round(thru_coord, 2),
+            "spillback_events": spill_coord,
+        },
+        "improvements": {
+            "queue_reduction_percent": round(q_reduction_pct, 2),
+            "throughput_improvement_percent": round(((thru_coord - thru_indep) / max(1e-3, thru_indep)) * 100.0, 2),
+            "spillback_prevented": max(0, spill_indep - spill_coord),
+        },
+    }

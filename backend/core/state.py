@@ -69,11 +69,18 @@ class AppState:
             junction_id, primary_cam, date, max_seconds=duration_sec + 120
         )
 
+        from backend.models.forecaster import forecaster
+
         self.fixed_ctrl = FixedTimeController(
             phases=self.layout.phases, fixed_green_sec=FIXED_CYCLE_SPLIT_SEC
         )
         self.actuated_ctrl = ActuatedController(phases=self.layout.phases)
         self.adaptive_ctrl = AdaptiveController(phases=self.layout.phases)
+        self.prediction_ctrl = AdaptiveController(
+            phases=self.layout.phases,
+            mode=ControllerMode.PREDICTION_ASSISTED,
+            forecaster=getattr(self, "_ml_forecaster", None) or forecaster,
+        )
         self.safety_supervisor = SafetySupervisor(
             intersection_id=junction_id,
             phases=self.layout.phases,
@@ -98,6 +105,8 @@ class AppState:
             return self.fixed_ctrl
         elif self.mode == ControllerMode.ACTUATED:
             return self.actuated_ctrl
+        elif self.mode == ControllerMode.PREDICTION_ASSISTED:
+            return self.prediction_ctrl or self.adaptive_ctrl
         else:
             return self.adaptive_ctrl
 
@@ -111,14 +120,26 @@ class AppState:
         ctrl = self._get_active_controller()
         ts = self.sim.time_index[self.sim.step_count] if self.sim.step_count < len(self.sim.time_index) else ""
 
-        decision = ctrl.step(
-            current_step=self.sim.step_count,
-            timestamp_str=ts,
-            approaches=self.sim.approaches,
-        )
+        try:
+            decision = ctrl.step(
+                current_step=self.sim.step_count,
+                timestamp_str=ts,
+                approaches=self.sim.approaches,
+            )
+        except Exception as ex:
+            logger.error(f"Controller exception at step {self.sim.step_count}: {ex}")
+            if self.safety_supervisor is not None:
+                decision, event = self.safety_supervisor.safe_fallback_decision(
+                    current_step=self.sim.step_count,
+                    timestamp_str=ts,
+                    exception_reason=str(ex),
+                )
+                self.safety_events.append(event)
+            else:
+                raise
 
         # Safety supervisor validates and may override the decision
-        if self.safety_supervisor is not None:
+        if self.safety_supervisor is not None and not getattr(decision, "safety_override", False):
             decision, events = self.safety_supervisor.validate_and_enforce(
                 decision=decision,
                 approaches=self.sim.approaches,
@@ -134,6 +155,26 @@ class AppState:
         self.decision_log.append(decision)
         return obs
 
+    def seek_to_step(self, target_step: int) -> Optional[StepObservation]:
+        """Fast-forward or rewind the simulation to a specific step index."""
+        if not self._initialized or self.sim is None:
+            return None
+        target = max(0, min(target_step, self.sim.total_steps - 1))
+
+        if target < self.sim.step_count:
+            # Rewind: re-initialize state and fast-forward to target
+            self.reset()
+
+        while self.sim.step_count < target:
+            obs = self.step_once()
+            if obs is None:
+                break
+
+        if self.last_observation is None and self.sim.step_count == 0:
+            return self.step_once()
+
+        return self.last_observation
+
     def reset(self):
         if not self._initialized:
             return
@@ -143,6 +184,8 @@ class AppState:
             self.actuated_ctrl.reset()
         if self.adaptive_ctrl:
             self.adaptive_ctrl.reset()
+        if getattr(self, "prediction_ctrl", None):
+            self.prediction_ctrl.reset()
         if self.safety_supervisor:
             self.safety_supervisor.reset()
         if self.sim:
