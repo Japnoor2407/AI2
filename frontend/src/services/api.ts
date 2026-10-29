@@ -18,6 +18,7 @@ export const api = {
   trafficHistory: (limit = 300) => apiFetch(`/api/traffic/history?limit=${limit}`),
   trafficAggregated: (intervalSec = 600) => apiFetch(`/api/traffic/aggregated?interval_sec=${intervalSec}`),
   controllerStatus: () => apiFetch('/api/controller/status'),
+  controllerModes: () => apiFetch('/api/controller/modes'),
   setMode: (mode: string) =>
     apiFetch('/api/controller/mode', {
       method: 'POST',
@@ -35,6 +36,7 @@ export const api = {
   simulationPause: () => apiFetch('/api/simulation/pause', { method: 'POST' }),
   simulationReset: () => apiFetch('/api/simulation/reset', { method: 'POST' }),
   evaluationSummary: () => apiFetch('/api/evaluation/summary'),
+  evaluationFullSummary: () => apiFetch('/api/evaluation/full-summary'),
   evaluationRun: (params?: object) =>
     apiFetch('/api/evaluation/run', {
       method: 'POST',
@@ -44,5 +46,9 @@ export const api = {
   evaluationExport: (format: 'json' | 'csv') =>
     fetch(`${BASE}/api/evaluation/export?format=${format}`),
   decisionLog: (limit = 100) => apiFetch(`/api/decision-log?limit=${limit}`),
+  safetyEvents: (limit = 200) => apiFetch(`/api/safety/events?limit=${limit}`),
+  replayHistory: (limit = 500) => apiFetch(`/api/replay/history?limit=${limit}`),
+  mlTrain: () => apiFetch('/api/ml/train', { method: 'POST' }),
+  mlMetrics: () => apiFetch('/api/ml/metrics'),
+  mlPredict: (horizon = 30) => apiFetch(`/api/ml/predict?horizon_steps=${horizon}`),
 }
-

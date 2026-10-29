@@ -12,7 +12,10 @@ class SignalState(str, Enum):
 
 class ControllerMode(str, Enum):
     FIXED_TIME = "FIXED_TIME"
+    ACTUATED = "ACTUATED"
     ADAPTIVE = "ADAPTIVE"
+    PREDICTION_ASSISTED = "PREDICTION_ASSISTED"
+    COORDINATED = "COORDINATED"
 
 
 class VehicleClassCounts(BaseModel):
@@ -77,6 +80,10 @@ class ControllerDecision(BaseModel):
     decision_rationale: str = ""
     is_transitioning: bool = False
     transition_stage: Optional[str] = None  # YELLOW, ALL_RED, or None
+    safety_override: bool = False
+    safety_override_reason: Optional[str] = None
+    predicted_arrivals_pcu: Optional[float] = None
+    execution_time_ms: float = 0.0
 
 
 class StepObservation(BaseModel):
@@ -91,28 +98,51 @@ class StepObservation(BaseModel):
 
 class MetricRecord(BaseModel):
     mean_queue_pcu: float
+    median_wait_sec: float = 0.0
+    p95_wait_sec: float = 0.0
     max_queue_pcu: float
     average_wait_sec: float
     max_wait_sec: float
     total_throughput_vehicles: int
     total_throughput_pcu: float
     total_arrived_vehicles: int
-    starvation_occurrences: int
+    residual_queue_pcu: float = 0.0
+    completed_trips: int = 0
+    unfinished_trips: int = 0
+    safety_violations: int = 0
+    controller_execution_time_ms: float = 0.0
+    starvation_occurrences: int = 0
     per_approach_stats: Dict[str, Dict[str, float]] = Field(default_factory=dict)
+
+
+class SafetyEvent(BaseModel):
+    step: int
+    timestamp_str: str
+    intersection_id: str
+    previous_phase_id: int
+    requested_phase_id: int
+    approved_phase_id: int
+    is_overridden: bool
+    override_reason: str
+    active_constraints: List[str] = Field(default_factory=list)
 
 
 class EvaluationReport(BaseModel):
     scenario_id: str
+    scenario_name: str = "Empirical Pune CCTV"
     junction_name: str
     evaluation_duration_sec: int
     start_time: str
     end_time: str
+    random_seed: Optional[int] = None
     fixed_time_baseline: MetricRecord
+    actuated_baseline: Optional[MetricRecord] = None
     adaptive_controller: MetricRecord
+    coordinated_controller: Optional[MetricRecord] = None
     queue_reduction_percent: float
     waiting_time_reduction_percent: float
     throughput_improvement_percent: float
+    improvements_vs_actuated: Optional[Dict[str, float]] = None
     timestamp_evaluated: str
     summary_text: str
     time_series: List[Dict[str, Any]] = Field(default_factory=list)
-

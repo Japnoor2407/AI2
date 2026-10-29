@@ -136,3 +136,83 @@ export interface AggregatedResponse {
 }
 
 
+
+export interface FullEvalMetrics {
+  mean_queue_pcu: number
+  max_queue_pcu: number
+  average_wait_sec: number
+  median_wait_sec: number
+  p95_wait_sec: number
+  total_throughput_pcu: number
+  residual_queue_pcu: number
+  starvation_occurrences: number
+  execution_time_ms: number
+}
+
+export interface FullEvaluationSummary {
+  status: string
+  message?: string
+  scenario_id?: string
+  scenario_name?: string
+  junction?: string
+  duration_sec?: number
+  evaluated_at?: string
+  fixed_time?: FullEvalMetrics
+  actuated?: FullEvalMetrics | null
+  adaptive?: FullEvalMetrics
+  improvements_vs_fixed?: {
+    queue_reduction_percent: number | null
+    waiting_time_reduction_percent: number | null
+    throughput_improvement_percent: number | null
+  }
+  improvements_vs_actuated?: {
+    queue_reduction_percent: number | null
+    waiting_time_reduction_percent: number | null
+    throughput_improvement_percent: number | null
+  } | null
+  summary?: string
+  time_series_length?: number
+}
+
+export interface SafetyEvent {
+  step: number
+  timestamp_str: string
+  intersection_id: string
+  previous_phase_id: number
+  requested_phase_id: number
+  approved_phase_id: number
+  is_overridden: boolean
+  override_reason: string
+  active_constraints: string[]
+}
+
+export interface SafetyResponse {
+  count: number
+  total_violations_prevented: number
+  events: SafetyEvent[]
+}
+
+export interface MLMetricsData {
+  status: string
+  message?: string
+  model?: string
+  metrics?: {
+    model_name: string
+    train_samples: number
+    test_samples: number
+    mae_test: number
+    rmse_test: number
+    r2_test: number
+    baseline_persistence_mae: number
+    baseline_persistence_rmse: number
+    baseline_ma_mae: number
+    mae_improvement_pct: number
+    feature_importance?: Record<string, number>
+  }
+}
+
+export interface ControllerModeInfo {
+  value: string
+  label: string
+  description: string
+}

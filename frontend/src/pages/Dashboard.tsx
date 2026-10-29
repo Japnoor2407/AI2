@@ -6,7 +6,7 @@ import {
 import {
   Play, Pause, RotateCcw, Activity, AlertTriangle,
   Download, Database, Zap, Clock, TrendingUp, Video,
-  BarChart3, GitFork, FileText, CheckCircle2,
+  BarChart3, GitFork, FileText, CheckCircle2, ShieldCheck, Brain,
 } from 'lucide-react'
 
 import { api } from '../services/api'
@@ -18,6 +18,9 @@ import { JunctionViz } from '../components/JunctionViz'
 import { SignalBadge } from '../components/SignalBadge'
 import { TrafficVideoFeed } from '../components/TrafficVideoFeed'
 import { AggregatedTrafficCharts } from '../components/AggregatedTrafficCharts'
+import { BenchmarkPanel } from '../components/BenchmarkPanel'
+import { SafetyAuditPanel } from '../components/SafetyAuditPanel'
+import { MLForecastPanel } from '../components/MLForecastPanel'
 
 // ─── Metric Card ────────────────────────────────────────────────────────────
 
@@ -54,14 +57,14 @@ export default function Dashboard() {
   const [running, setRunning] = useState(false)
   const [paused, setPaused] = useState(false)
   const [speed, setSpeed] = useState(1000)
-  const [mode, setMode] = useState<'ADAPTIVE' | 'FIXED_TIME'>('ADAPTIVE')
+  const [mode, setMode] = useState<'ADAPTIVE' | 'ACTUATED' | 'FIXED_TIME'>('ADAPTIVE')
   const [status, setStatus] = useState<ControllerStatus | null>(null)
   const [current, setCurrent] = useState<TrafficCurrent | null>(null)
   const [history, setHistory] = useState<HistoryPoint[]>([])
   const [evalSummary, setEvalSummary] = useState<EvaluationSummary | null>(null)
   const [decisionLog, setDecisionLog] = useState<DecisionLogEntry[]>([])
   const [evalRunning, setEvalRunning] = useState(false)
-  const [activeTab, setActiveTab] = useState<'overview' | 'video' | 'junction' | 'monitoring' | 'evaluation' | 'log' | 'dataset'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'video' | 'junction' | 'monitoring' | 'benchmark' | 'safety' | 'ml' | 'evaluation' | 'log' | 'dataset'>('overview')
   const [monitoringUnit, setMonitoringUnit] = useState<'10min' | '1sec'>('10min')
   const [overviewGraphUnit, setOverviewGraphUnit] = useState<'10min' | '1sec'>('10min')
   const [aggregated10Min, setAggregated10Min] = useState<AggregatedInterval[]>([])
@@ -124,7 +127,7 @@ export default function Dashboard() {
     await fetchAll()
   }
 
-  const handleModeSwitch = async (m: 'ADAPTIVE' | 'FIXED_TIME') => {
+  const handleModeSwitch = async (m: 'ADAPTIVE' | 'ACTUATED' | 'FIXED_TIME') => {
     setMode(m)
     await api.setMode(m)
   }
@@ -156,7 +159,10 @@ export default function Dashboard() {
     { id: 'video',      label: 'CCTV Video Feed', icon: <Video size={15} /> },
     { id: 'junction',   label: 'Junction View', icon: <GitFork size={15} /> },
     { id: 'monitoring', label: '10-Min Graphs', icon: <BarChart3 size={15} /> },
-    { id: 'evaluation', label: 'Evaluation', icon: <TrendingUp size={15} /> },
+    { id: 'benchmark',  label: '3-Way Benchmark', icon: <TrendingUp size={15} /> },
+    { id: 'safety',     label: 'Safety Audit', icon: <ShieldCheck size={15} /> },
+    { id: 'ml',         label: 'ML Demand Forecaster', icon: <Brain size={15} /> },
+    { id: 'evaluation', label: 'Evaluation', icon: <CheckCircle2 size={15} /> },
     { id: 'log',        label: 'Decision Log', icon: <FileText size={15} /> },
     { id: 'dataset',    label: 'Dataset', icon: <Database size={15} /> },
   ] as const
@@ -239,7 +245,7 @@ export default function Dashboard() {
             <div className="card space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 {/* Controller Mode Switch */}
-                <div className="flex items-center gap-2 bg-slate-900 p-1 rounded-lg border border-slate-800">
+                <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-800">
                   <button
                     onClick={() => handleModeSwitch('ADAPTIVE')}
                     className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
@@ -248,7 +254,17 @@ export default function Dashboard() {
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    ⚡ Demand-Adaptive
+                    ⚡ Adaptive (AI)
+                  </button>
+                  <button
+                    onClick={() => handleModeSwitch('ACTUATED')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                      mode === 'ACTUATED'
+                        ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    🚦 Actuated
                   </button>
                   <button
                     onClick={() => handleModeSwitch('FIXED_TIME')}
@@ -258,7 +274,7 @@ export default function Dashboard() {
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    ⏱ Fixed-Time (30s)
+                    ⏱ Fixed-Time
                   </button>
                 </div>
 
@@ -356,7 +372,7 @@ export default function Dashboard() {
               />
               <MetricCard
                 label="Active Strategy"
-                value={mode === 'ADAPTIVE' ? 'Adaptive' : 'Fixed-Time'}
+                value={mode === 'ADAPTIVE' ? 'Adaptive' : mode === 'ACTUATED' ? 'Actuated' : 'Fixed-Time'}
                 icon={<Zap size={16} className="text-cyan-400" />}
                 accent="cyan"
                 sub={`Phase ${ctrl?.active_phase_id ?? 1} · ${ctrl?.signal_state ?? 'GREEN'}`}
@@ -592,6 +608,21 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ─── 3-WAY BENCHMARK TAB ─── */}
+        {activeTab === 'benchmark' && (
+          <BenchmarkPanel />
+        )}
+
+        {/* ─── SAFETY AUDIT TAB ─── */}
+        {activeTab === 'safety' && (
+          <SafetyAuditPanel />
+        )}
+
+        {/* ─── ML DEMAND FORECASTER TAB ─── */}
+        {activeTab === 'ml' && (
+          <MLForecastPanel />
         )}
 
         {/* ─── EVALUATION TAB ─── */}

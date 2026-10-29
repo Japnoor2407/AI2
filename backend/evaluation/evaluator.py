@@ -1,18 +1,37 @@
 """
-Evaluation framework: runs both Fixed-Time and Adaptive controllers on the
-same demand window and produces a fair comparison report.
+Evaluation framework: runs Fixed-Time, Actuated, and Adaptive controllers on
+the same demand window and produces a fair 3-way comparison report.
+
+Metric definitions:
+  mean_queue_pcu       : time-average of total_active_queue_pcu across all steps
+  max_queue_pcu        : peak total_active_queue_pcu observed
+  average_wait_sec     : time-average of per-junction average_delay_sec
+  max_wait_sec         : peak per-junction average_delay_sec
+  median_wait_sec      : median of per-step average_delay_sec (P50)
+  p95_wait_sec         : 95th-percentile of per-step average_delay_sec
+  total_throughput_pcu : cumulative PCU discharged at simulation end
+  residual_queue_pcu   : total_active_queue_pcu at final step (incomplete trips)
+  starvation_occurrences: count of (approach × step) starvation events
+  execution_time_ms    : wall-clock time for controller decisions (ms)
+
+Improvement percentages:
+  For lower-is-better metrics: ((baseline - test) / baseline) * 100
+  For higher-is-better metrics: ((test - baseline) / baseline) * 100
+  Zero denominator → returns None (shown as "Insufficient data" in UI)
 """
 
 import datetime
 import logging
-from typing import Dict, List, Optional
-import pandas as pd
+import statistics
+import time
+from typing import Dict, List, Optional, Tuple
 
 from backend.core.schema import (
     ControllerDecision, EvaluationReport, MetricRecord, SignalState,
 )
 from backend.core.controller_baseline import FixedTimeController
 from backend.core.controller_adaptive import AdaptiveController
+from backend.core.controller_actuated import ActuatedController
 from backend.simulation.junction_layout import JunctionLayout
 from backend.simulation.replay_engine import JunctionSimulator
 from backend.data.loader import DatasetAdapter
@@ -23,19 +42,38 @@ logger = logging.getLogger(__name__)
 _adapter = DatasetAdapter()
 
 
-def _collect_metrics(sim: JunctionSimulator) -> MetricRecord:
+def _compute_percentile(values: List[float], percentile: float) -> float:
+    """Compute a percentile from a list using linear interpolation."""
+    if not values:
+        return 0.0
+    sorted_vals = sorted(values)
+    idx = (percentile / 100.0) * (len(sorted_vals) - 1)
+    lo = int(idx)
+    hi = min(lo + 1, len(sorted_vals) - 1)
+    frac = idx - lo
+    return round(sorted_vals[lo] * (1 - frac) + sorted_vals[hi] * frac, 2)
+
+
+def _collect_metrics(sim: JunctionSimulator, exec_time_ms: float = 0.0) -> MetricRecord:
+    """
+    Collect metrics from a completed simulation log.
+    All values are derived from actual simulation observations.
+    """
     if not sim.log:
         return MetricRecord(
             mean_queue_pcu=0, max_queue_pcu=0,
             average_wait_sec=0, max_wait_sec=0,
+            median_wait_sec=0, p95_wait_sec=0,
             total_throughput_vehicles=0, total_throughput_pcu=0,
             total_arrived_vehicles=0, starvation_occurrences=0,
+            residual_queue_pcu=0, controller_execution_time_ms=exec_time_ms,
         )
 
     all_queues: List[float] = []
     all_waits: List[float] = []
     starvation_count = 0
     per_approach_sum: Dict[str, Dict[str, float]] = {}
+    total_arrived_pcu = 0.0
 
     for obs in sim.log:
         all_queues.append(obs.total_active_queue_pcu)
@@ -45,12 +83,13 @@ def _collect_metrics(sim: JunctionSimulator) -> MetricRecord:
                 starvation_count += 1
             if app_id not in per_approach_sum:
                 per_approach_sum[app_id] = {
-                    "total_queue": 0, "total_wait": 0, "steps": 0, "arrivals_pcu": 0,
+                    "total_queue": 0.0, "total_wait": 0.0, "steps": 0, "arrivals_pcu": 0.0,
                 }
             per_approach_sum[app_id]["total_queue"] += app.estimated_queue_pcu
             per_approach_sum[app_id]["total_wait"] += app.average_wait_time_sec
             per_approach_sum[app_id]["steps"] += 1
-            per_approach_sum[app_id]["arrivals_pcu"] += app.cumulative_arrivals_pcu
+            per_approach_sum[app_id]["arrivals_pcu"] += app.arrivals_last_step.to_pcu()
+            total_arrived_pcu += app.arrivals_last_step.to_pcu()
 
     n = max(1, len(sim.log))
     per_approach_stats = {
@@ -62,32 +101,85 @@ def _collect_metrics(sim: JunctionSimulator) -> MetricRecord:
         for app_id, v in per_approach_sum.items()
     }
 
+    # Total vehicles arrived: sum across all approaches, use last step cumulative value
     final_obs = sim.log[-1]
     total_arrived_veh = sum(
         a.arrivals_last_step.total_vehicles for a in final_obs.approaches.values()
     )
+    residual_queue = final_obs.total_active_queue_pcu
 
     return MetricRecord(
         mean_queue_pcu=round(sum(all_queues) / n, 2),
         max_queue_pcu=round(max(all_queues), 2),
         average_wait_sec=round(sum(all_waits) / n, 2),
         max_wait_sec=round(max(all_waits), 2),
-        total_throughput_vehicles=int(final_obs.total_throughput_pcu / 1.0),  # rough PCU→veh
+        median_wait_sec=_compute_percentile(all_waits, 50),
+        p95_wait_sec=_compute_percentile(all_waits, 95),
+        total_throughput_vehicles=int(final_obs.total_throughput_pcu / 1.0),
         total_throughput_pcu=round(final_obs.total_throughput_pcu, 2),
         total_arrived_vehicles=total_arrived_veh,
         starvation_occurrences=starvation_count,
+        residual_queue_pcu=round(residual_queue, 2),
+        controller_execution_time_ms=round(exec_time_ms, 1),
         per_approach_stats=per_approach_stats,
     )
 
 
-def _safe_improvement(baseline: float, adaptive: float, higher_is_better: bool = False) -> float:
-    """Calculate improvement percentage safely, avoiding division by zero."""
+def _safe_improvement(
+    baseline: float, test: float, higher_is_better: bool = False
+) -> Optional[float]:
+    """
+    Calculate improvement percentage safely.
+    Returns None if baseline is 0 (undefined).
+    Positive = test is better than baseline.
+    """
     if baseline == 0:
-        return 0.0
+        return None
     if higher_is_better:
-        return round(((adaptive - baseline) / baseline) * 100, 2)
+        return round(((test - baseline) / baseline) * 100, 2)
     else:
-        return round(((baseline - adaptive) / baseline) * 100, 2)
+        return round(((baseline - test) / baseline) * 100, 2)
+
+
+def _run_controller(
+    ctrl,
+    layout: JunctionLayout,
+    arrivals_df,
+    date_str: str,
+    duration_sec: int,
+) -> Tuple[JunctionSimulator, float]:
+    """Run a single controller for duration_sec steps and return sim + exec time ms."""
+    sim = JunctionSimulator(layout=layout, arrival_data=arrivals_df, date=date_str)
+    total_ctrl_ms = 0.0
+
+    steps = min(duration_sec, sim.total_steps)
+    for _ in range(steps):
+        ts = sim.time_index[sim.step_count] if sim.step_count < len(sim.time_index) else ""
+        t0 = time.perf_counter()
+        dec = ctrl.step(
+            current_step=sim.step_count,
+            timestamp_str=ts,
+            approaches=sim.approaches,
+        )
+        total_ctrl_ms += (time.perf_counter() - t0) * 1000.0
+        sim.step(dec)
+
+    return sim, total_ctrl_ms
+
+
+def _build_time_series(sim: JunctionSimulator) -> List[dict]:
+    return [
+        {
+            "step": obs.step,
+            "time": obs.timestamp_str,
+            "queue_pcu": obs.total_active_queue_pcu,
+            "throughput_pcu": obs.total_throughput_pcu,
+            "delay_sec": obs.average_delay_sec,
+            "phase": obs.controller_decision.active_phase_id,
+            "signal": obs.controller_decision.signal_state.value,
+        }
+        for obs in sim.log
+    ]
 
 
 def run_evaluation(
@@ -95,127 +187,144 @@ def run_evaluation(
     date: str = "11",
     duration_sec: int = 900,
     fixed_green_sec: int = FIXED_CYCLE_SPLIT_SEC,
+    scenario: str = "normal",
+    demand_multiplier: float = 1.0,
 ) -> EvaluationReport:
     """
-    Run both controllers on identical demand and return a comparison report.
+    Run Fixed-Time, Actuated, and Adaptive controllers on identical demand
+    and return a 3-way comparison report.
     """
-    logger.info(f"Starting evaluation: {junction_id}, date=Jan {date}, {duration_sec}s")
+    logger.info(
+        f"Starting 3-controller evaluation: {junction_id}, Jan-{date}, "
+        f"{duration_sec}s, scenario={scenario}, demand_mult={demand_multiplier}"
+    )
     layout = JunctionLayout(junction_id)
 
-    # Load arrivals data
+    # Load arrivals data from primary camera
     cameras_needed = set(meta["camera_id"] for meta in layout.approaches.values())
-    date_str = str(date)
-
-    # Load from first available camera (primary data source)
     primary_cam = sorted(cameras_needed)[0]
     try:
         arrivals_df = _adapter.load_camera_arrivals(
-            junction_id, primary_cam, date_str, max_seconds=duration_sec + 120
+            junction_id, primary_cam, str(date), max_seconds=duration_sec + 120
         )
     except FileNotFoundError:
-        # Try second camera
         other_cams = sorted(cameras_needed - {primary_cam})
         if other_cams:
             arrivals_df = _adapter.load_camera_arrivals(
-                junction_id, other_cams[0], date_str, max_seconds=duration_sec + 120
+                junction_id, other_cams[0], str(date), max_seconds=duration_sec + 120
             )
         else:
             raise
 
+    # Apply demand multiplier if scenario requires scaling
+    if demand_multiplier != 1.0:
+        arrivals_df = _scale_arrivals_df(arrivals_df, demand_multiplier)
+
+    date_str = str(date)
+
     # --- FIXED-TIME RUN ---
-    fixed_ctrl = FixedTimeController(
-        phases=layout.phases,
-        fixed_green_sec=fixed_green_sec,
-    )
-    fixed_sim = JunctionSimulator(layout=layout, arrival_data=arrivals_df, date=date_str)
-    time_series_fixed = []
+    fixed_ctrl = FixedTimeController(phases=layout.phases, fixed_green_sec=fixed_green_sec)
+    fixed_sim, fixed_exec_ms = _run_controller(fixed_ctrl, layout, arrivals_df, date_str, duration_sec)
+    fixed_metrics = _collect_metrics(fixed_sim, fixed_exec_ms)
+    time_series_fixed = _build_time_series(fixed_sim)
 
-    for _ in range(min(duration_sec, fixed_sim.total_steps)):
-        dec = fixed_ctrl.step(
-            current_step=fixed_sim.step_count,
-            timestamp_str=fixed_sim.time_index[fixed_sim.step_count] if fixed_sim.step_count < len(fixed_sim.time_index) else "",
-            approaches=fixed_sim.approaches,
-        )
-        obs = fixed_sim.step(dec)
-        time_series_fixed.append({
-            "step": obs.step,
-            "time": obs.timestamp_str,
-            "queue_pcu": obs.total_active_queue_pcu,
-            "throughput_pcu": obs.total_throughput_pcu,
-            "delay_sec": obs.average_delay_sec,
-            "phase": dec.active_phase_id,
-            "signal": dec.signal_state.value,
-        })
-
-    fixed_metrics = _collect_metrics(fixed_sim)
+    # --- ACTUATED RUN ---
+    actuated_ctrl = ActuatedController(phases=layout.phases)
+    actuated_sim, actuated_exec_ms = _run_controller(actuated_ctrl, layout, arrivals_df, date_str, duration_sec)
+    actuated_metrics = _collect_metrics(actuated_sim, actuated_exec_ms)
+    time_series_actuated = _build_time_series(actuated_sim)
 
     # --- ADAPTIVE RUN ---
     adaptive_ctrl = AdaptiveController(phases=layout.phases)
-    adaptive_sim = JunctionSimulator(layout=layout, arrival_data=arrivals_df, date=date_str)
-    time_series_adaptive = []
+    adaptive_sim, adaptive_exec_ms = _run_controller(adaptive_ctrl, layout, arrivals_df, date_str, duration_sec)
+    adaptive_metrics = _collect_metrics(adaptive_sim, adaptive_exec_ms)
+    time_series_adaptive = _build_time_series(adaptive_sim)
 
-    for _ in range(min(duration_sec, adaptive_sim.total_steps)):
-        dec = adaptive_ctrl.step(
-            current_step=adaptive_sim.step_count,
-            timestamp_str=adaptive_sim.time_index[adaptive_sim.step_count] if adaptive_sim.step_count < len(adaptive_sim.time_index) else "",
-            approaches=adaptive_sim.approaches,
-        )
-        obs = adaptive_sim.step(dec)
-        time_series_adaptive.append({
-            "step": obs.step,
-            "time": obs.timestamp_str,
-            "queue_pcu": obs.total_active_queue_pcu,
-            "throughput_pcu": obs.total_throughput_pcu,
-            "delay_sec": obs.average_delay_sec,
-            "phase": dec.active_phase_id,
-            "signal": dec.signal_state.value,
-        })
-
-    adaptive_metrics = _collect_metrics(adaptive_sim)
-
-    # Merge time series for report
+    # Merge time series for comparative chart
     merged_ts = []
-    for i, (f, a) in enumerate(zip(time_series_fixed, time_series_adaptive)):
+    for i, (f, u, a) in enumerate(
+        zip(time_series_fixed, time_series_actuated, time_series_adaptive)
+    ):
         merged_ts.append({
             "step": i,
             "time": f["time"],
             "fixed_queue_pcu": f["queue_pcu"],
+            "actuated_queue_pcu": u["queue_pcu"],
             "adaptive_queue_pcu": a["queue_pcu"],
             "fixed_delay_sec": f["delay_sec"],
+            "actuated_delay_sec": u["delay_sec"],
             "adaptive_delay_sec": a["delay_sec"],
             "fixed_throughput_pcu": f["throughput_pcu"],
+            "actuated_throughput_pcu": u["throughput_pcu"],
             "adaptive_throughput_pcu": a["throughput_pcu"],
         })
 
     now = datetime.datetime.now().isoformat()
     times = [r["time"] for r in time_series_fixed]
 
+    # Improvements vs Fixed-Time baseline
+    imp_queue_vs_fixed = _safe_improvement(fixed_metrics.mean_queue_pcu, adaptive_metrics.mean_queue_pcu)
+    imp_wait_vs_fixed = _safe_improvement(fixed_metrics.average_wait_sec, adaptive_metrics.average_wait_sec)
+    imp_thru_vs_fixed = _safe_improvement(
+        fixed_metrics.total_throughput_pcu, adaptive_metrics.total_throughput_pcu, higher_is_better=True
+    )
+
+    # Improvements vs Actuated baseline
+    imp_queue_vs_actuated = _safe_improvement(actuated_metrics.mean_queue_pcu, adaptive_metrics.mean_queue_pcu)
+    imp_wait_vs_actuated = _safe_improvement(actuated_metrics.average_wait_sec, adaptive_metrics.average_wait_sec)
+    imp_thru_vs_actuated = _safe_improvement(
+        actuated_metrics.total_throughput_pcu, adaptive_metrics.total_throughput_pcu, higher_is_better=True
+    )
+
+    summary = (
+        f"3-controller evaluation: {junction_id} · Jan-{date} 2023 · {duration_sec}s · scenario={scenario}. "
+        f"Adaptive vs Fixed: queue {_fmt_pct(imp_queue_vs_fixed)}, "
+        f"wait {_fmt_pct(imp_wait_vs_fixed)}, "
+        f"throughput {_fmt_pct(imp_thru_vs_fixed)}. "
+        f"Adaptive vs Actuated: queue {_fmt_pct(imp_queue_vs_actuated)}, "
+        f"wait {_fmt_pct(imp_wait_vs_actuated)}."
+    )
+
     return EvaluationReport(
-        scenario_id=f"{junction_id}_jan{date}_eval",
+        scenario_id=f"{junction_id}_jan{date}_{scenario}",
+        scenario_name=scenario,
         junction_name=junction_id,
         evaluation_duration_sec=duration_sec,
         start_time=times[0] if times else "N/A",
         end_time=times[-1] if times else "N/A",
         fixed_time_baseline=fixed_metrics,
+        actuated_baseline=actuated_metrics,
         adaptive_controller=adaptive_metrics,
-        queue_reduction_percent=_safe_improvement(
-            fixed_metrics.mean_queue_pcu, adaptive_metrics.mean_queue_pcu
-        ),
-        waiting_time_reduction_percent=_safe_improvement(
-            fixed_metrics.average_wait_sec, adaptive_metrics.average_wait_sec
-        ),
-        throughput_improvement_percent=_safe_improvement(
-            fixed_metrics.total_throughput_pcu,
-            adaptive_metrics.total_throughput_pcu,
-            higher_is_better=True,
-        ),
+        queue_reduction_percent=imp_queue_vs_fixed or 0.0,
+        waiting_time_reduction_percent=imp_wait_vs_fixed or 0.0,
+        throughput_improvement_percent=imp_thru_vs_fixed or 0.0,
+        improvements_vs_actuated={
+            "queue_reduction_percent": imp_queue_vs_actuated,
+            "waiting_time_reduction_percent": imp_wait_vs_actuated,
+            "throughput_improvement_percent": imp_thru_vs_actuated,
+        },
         timestamp_evaluated=now,
-        summary_text=(
-            f"Evaluated {junction_id} over {duration_sec}s of Jan-{date} 2023 data. "
-            f"Queue reduction: {_safe_improvement(fixed_metrics.mean_queue_pcu, adaptive_metrics.mean_queue_pcu):.1f}%, "
-            f"Wait reduction: {_safe_improvement(fixed_metrics.average_wait_sec, adaptive_metrics.average_wait_sec):.1f}%, "
-            f"Throughput change: {_safe_improvement(fixed_metrics.total_throughput_pcu, adaptive_metrics.total_throughput_pcu, True):.1f}%."
-        ),
+        summary_text=summary,
         time_series=merged_ts,
     )
 
+
+def _fmt_pct(v: Optional[float]) -> str:
+    if v is None:
+        return "N/A"
+    sign = "+" if v >= 0 else ""
+    return f"{sign}{v:.1f}%"
+
+
+def _scale_arrivals_df(df, multiplier: float):
+    """Scale all vehicle count columns by demand multiplier."""
+    import pandas as pd
+    df = df.copy()
+    count_cols = [c for c in df.columns if c in (
+        "car", "motorbike", "bus", "truck",
+        "car_arrivals", "motorbike_arrivals", "bus_arrivals", "truck_arrivals",
+        "pcu_arrivals",
+    )]
+    for col in count_cols:
+        df[col] = (df[col] * multiplier).round().astype(int)
+    return df

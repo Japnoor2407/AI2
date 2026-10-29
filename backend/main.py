@@ -48,13 +48,15 @@ class InitRequest(BaseModel):
 
 
 class ModeRequest(BaseModel):
-    mode: str  # "FIXED_TIME" or "ADAPTIVE"
+    mode: str  # "FIXED_TIME", "ACTUATED", or "ADAPTIVE"
 
 
 class EvalRequest(BaseModel):
     junction_id: str = "AlankarChowk"
     date: str = "11"
     duration_sec: int = 900
+    scenario: str = "normal"
+    demand_multiplier: float = 1.0
 
 
 # ──────────────────────────────────────────────────────────
@@ -274,7 +276,7 @@ def set_mode(req: ModeRequest):
     try:
         new_mode = ControllerMode(req.mode)
     except ValueError:
-        raise HTTPException(400, f"Invalid mode '{req.mode}'. Use FIXED_TIME or ADAPTIVE.")
+        raise HTTPException(400, f"Invalid mode '{req.mode}'. Use FIXED_TIME, ACTUATED, or ADAPTIVE.")
     app_state.mode = new_mode
     return {"status": "ok", "mode": new_mode.value}
 
@@ -379,9 +381,14 @@ def evaluation_run(req: Optional[EvalRequest] = None):
     j = req.junction_id if req else "AlankarChowk"
     d = req.date if req else "11"
     dur = req.duration_sec if req else 900
+    scenario = req.scenario if req else "normal"
+    demand_mult = req.demand_multiplier if req else 1.0
 
     try:
-        report = run_evaluation(junction_id=j, date=d, duration_sec=dur)
+        report = run_evaluation(
+            junction_id=j, date=d, duration_sec=dur,
+            scenario=scenario, demand_multiplier=demand_mult,
+        )
         app_state.evaluation_report = report
         return {"status": "ok", "summary": report.summary_text}
     except FileNotFoundError as e:
@@ -440,5 +447,197 @@ def decision_log(limit: int = Query(default=100, ge=1, le=2000)):
             }
             for d in recent
         ],
+    }
+
+
+# ──────────────────────────────────────────────────────────
+# Safety Audit Log
+# ──────────────────────────────────────────────────────────
+
+@app.get("/api/safety/events")
+def safety_events(limit: int = Query(default=200, ge=1, le=5000)):
+    """Return all safety supervisor override events for the current session."""
+    events = app_state.safety_events[-limit:]
+    return {
+        "count": len(events),
+        "total_violations_prevented": (
+            app_state.safety_supervisor.total_violations_prevented
+            if app_state.safety_supervisor else 0
+        ),
+        "events": [e.model_dump() for e in events],
+    }
+
+
+# ──────────────────────────────────────────────────────────
+# Controller Modes
+# ──────────────────────────────────────────────────────────
+
+@app.get("/api/controller/modes")
+def controller_modes():
+    """List all available controller types with descriptions."""
+    return {
+        "modes": [
+            {
+                "value": "FIXED_TIME",
+                "label": "Fixed-Time",
+                "description": "Predetermined cycle with fixed green splits. Baseline controller.",
+            },
+            {
+                "value": "ACTUATED",
+                "label": "Actuated",
+                "description": "Gap-out / max-out demand-responsive controller. Extends green based on vehicle arrivals.",
+            },
+            {
+                "value": "ADAPTIVE",
+                "label": "Adaptive (AI)",
+                "description": "Demand-scored adaptive controller with starvation prevention and anti-congestion override.",
+            },
+        ]
+    }
+
+
+# ──────────────────────────────────────────────────────────
+# Replay History
+# ──────────────────────────────────────────────────────────
+
+@app.get("/api/replay/history")
+def replay_history(limit: int = Query(default=500, ge=1, le=10000)):
+    """Return full step-by-step replay log for timeline visualization."""
+    recent = app_state.history[-limit:]
+    return {
+        "count": len(recent),
+        "history": [
+            {
+                "step": obs.step,
+                "time": obs.timestamp_str,
+                "phase_id": obs.controller_decision.active_phase_id,
+                "phase_name": obs.controller_decision.phase_name,
+                "signal_state": obs.controller_decision.signal_state.value,
+                "total_queue_pcu": obs.total_active_queue_pcu,
+                "total_throughput_pcu": obs.total_throughput_pcu,
+                "average_delay_sec": obs.average_delay_sec,
+                "is_transitioning": obs.controller_decision.is_transitioning,
+                "safety_override": getattr(obs.controller_decision, "safety_override", False),
+                "approaches": {
+                    app_id: {
+                        "signal": a.current_signal.value,
+                        "queue_pcu": a.estimated_queue_pcu,
+                        "wait_sec": a.average_wait_time_sec,
+                        "is_starving": a.is_starving,
+                    }
+                    for app_id, a in obs.approaches.items()
+                },
+            }
+            for obs in recent
+        ],
+    }
+
+
+# ──────────────────────────────────────────────────────────
+# ML Forecaster
+# ──────────────────────────────────────────────────────────
+
+@app.post("/api/ml/train")
+def ml_train():
+    """Train the traffic demand forecaster on the current junction dataset."""
+    try:
+        from backend.models.forecaster import TrafficDemandForecaster
+        from backend.data.loader import DatasetAdapter
+
+        adapter = DatasetAdapter()
+        junction = app_state.junction_id
+        date = app_state.date
+        cameras = adapter.get_cameras_for_junction(junction)
+        if not cameras:
+            raise HTTPException(404, f"No cameras found for junction {junction}")
+
+        cam = cameras[0]
+        df = adapter.load_camera_arrivals(junction, cam, date, max_seconds=7200)
+        forecaster = TrafficDemandForecaster()
+        metrics = forecaster.train_and_evaluate(df)
+
+        # Cache on app_state for later prediction
+        app_state._ml_forecaster = forecaster
+        return {"status": "ok", "metrics": metrics}
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"Dataset not found: {e}")
+    except Exception as e:
+        logger.exception("ML training failed")
+        raise HTTPException(500, f"ML training error: {e}")
+
+
+@app.get("/api/ml/metrics")
+def ml_metrics():
+    """Return metrics from the last ML training run."""
+    forecaster = getattr(app_state, "_ml_forecaster", None)
+    if forecaster is None:
+        return {"status": "not_trained", "message": "POST /api/ml/train first."}
+    return {"status": "ok", "metrics": forecaster.metrics, "model": forecaster.model_name}
+
+
+@app.get("/api/ml/predict")
+def ml_predict(horizon_steps: int = Query(default=30, ge=1, le=300)):
+    """Return short-term traffic demand prediction for the next N steps."""
+    forecaster = getattr(app_state, "_ml_forecaster", None)
+    if forecaster is None:
+        return {"status": "not_trained", "message": "POST /api/ml/train first."}
+    if not app_state.history:
+        return {"status": "no_data", "message": "Start simulation first to collect history."}
+    try:
+        predictions = forecaster.predict_next(
+            history=app_state.history[-60:],
+            horizon=horizon_steps,
+        )
+        return {"status": "ok", "horizon_steps": horizon_steps, "predictions": predictions}
+    except Exception as e:
+        logger.exception("ML prediction failed")
+        raise HTTPException(500, f"Prediction error: {e}")
+
+
+# ──────────────────────────────────────────────────────────
+# Evaluation — Full 3-controller summary endpoint
+# ──────────────────────────────────────────────────────────
+
+@app.get("/api/evaluation/full-summary")
+def evaluation_full_summary():
+    """Return 3-controller comparison (Fixed, Actuated, Adaptive) from last evaluation."""
+    if app_state.evaluation_report is None:
+        return {
+            "status": "not_evaluated",
+            "message": "No evaluation run yet. POST /api/evaluation/run to evaluate.",
+        }
+    r = app_state.evaluation_report
+
+    def _fmt(m):
+        return {
+            "mean_queue_pcu": m.mean_queue_pcu,
+            "max_queue_pcu": m.max_queue_pcu,
+            "average_wait_sec": m.average_wait_sec,
+            "median_wait_sec": m.median_wait_sec,
+            "p95_wait_sec": m.p95_wait_sec,
+            "total_throughput_pcu": m.total_throughput_pcu,
+            "residual_queue_pcu": m.residual_queue_pcu,
+            "starvation_occurrences": m.starvation_occurrences,
+            "execution_time_ms": m.controller_execution_time_ms,
+        }
+
+    return {
+        "status": "ok",
+        "scenario_id": r.scenario_id,
+        "scenario_name": r.scenario_name,
+        "junction": r.junction_name,
+        "duration_sec": r.evaluation_duration_sec,
+        "evaluated_at": r.timestamp_evaluated,
+        "fixed_time": _fmt(r.fixed_time_baseline),
+        "actuated": _fmt(r.actuated_baseline) if r.actuated_baseline else None,
+        "adaptive": _fmt(r.adaptive_controller),
+        "improvements_vs_fixed": {
+            "queue_reduction_percent": r.queue_reduction_percent,
+            "waiting_time_reduction_percent": r.waiting_time_reduction_percent,
+            "throughput_improvement_percent": r.throughput_improvement_percent,
+        },
+        "improvements_vs_actuated": r.improvements_vs_actuated,
+        "summary": r.summary_text,
+        "time_series_length": len(r.time_series),
     }
 
