@@ -1,0 +1,16 @@
+<tlLogics xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/tllogic_file.xsd">
+    <tlLogic id="J_center" type="static" programID="2_phase_rl" offset="0">
+        <!-- Phase 1: North-South Green (duration default 25s) -->
+        <phase duration="25" state="GGGGrrrrGGGGrrrr"/>
+        <!-- Phase 1 Yellow Clearance (3s) -->
+        <phase duration="3"  state="yyyyrrrryyyyrrrr"/>
+        <!-- All-Red Clearance (2s) -->
+        <phase duration="2"  state="rrrrrrrrrrrrrrrr"/>
+        <!-- Phase 2: East-West Green (duration default 25s) -->
+        <phase duration="25" state="rrrrGGGGrrrrGGGG"/>
+        <!-- Phase 2 Yellow Clearance (3s) -->
+        <phase duration="3"  state="rrrryyyyrrrryyyy"/>
+        <!-- All-Red Clearance (2s) -->
+        <phase duration="2"  state="rrrrrrrrrrrrrrrr"/>
+    </tlLogic>
+</tlLogics>

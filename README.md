@@ -3,7 +3,9 @@
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/Frontend-React_19_Vite_TS-61DAFB?logo=react)](https://react.dev)
 [![TailwindCSS](https://img.shields.io/badge/Styling-Tailwind_CSS_v4-38B2AC?logo=tailwind-css)](https://tailwindcss.com)
-[![Tests](https://img.shields.io/badge/Tests-50%20Passed-success)](https://github.com/Japnoor2407/AI2)
+[![Tests](https://img.shields.io/badge/Tests-136%20Passed-success)](https://github.com/Japnoor2407/AI2)
+[![Gymnasium](https://img.shields.io/badge/RL-Gymnasium_PPO_SB3-blueviolet)](https://gymnasium.farama.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.x_CPU-ee4c2c?logo=pytorch)](https://pytorch.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## 1. Problem Statement (SIH1607)
@@ -33,7 +35,17 @@ This system implements an end-to-end intelligent traffic signal controller opera
 - **Baseline Comparative Validation**: Evaluates model MAE and RMSE against naive persistence ($y_t = y_{t-1}$) and rolling moving-average baselines.
 - **Feature Attribution**: Quantifies predictive weight across lag intervals and velocity differentials.
 
-### 2.4 Indian Traffic Standards (IRC:106)
+### 2.4 Deep Reinforcement Learning Controller (PPO)
+- **Custom Gymnasium Environment**: Standard-compliant `TrafficSignalEnv` driving a four-way intersection with real Pune CCTV arrival dynamics.
+- **21-Dimensional Observation Space**: Normalized queue lengths (4), arrival rates (4), mean delays (4), starvation timers (4), active phase one-hot (2), elapsed phase duration (1), intersection density (1), and episode progress (1).
+- **16-Discrete Action Space**: Combinatorial phase selection ($\text{Phase 1: NS}, \text{Phase 2: EW}$) paired with 8 green durations ($10\text{s}, 15\text{s}, 20\text{s}, 25\text{s}, 30\text{s}, 40\text{s}, 50\text{s}, 55\text{s}$).
+- **Multi-Objective Reward Function**:
+  $$R = 0.35 \cdot \Delta Q + 0.30 \cdot T - 0.20 \cdot W - 0.10 \cdot S - 0.05 \cdot P_{\text{switch}} - 0.05 \cdot P_{\text{balance}}$$
+  where $\Delta Q$ is queue improvement, $T$ is throughput discharged, $W$ is mean wait penalty, $S$ is starvation overage, $P_{\text{switch}}$ discourages rapid oscillations, and $P_{\text{balance}}$ minimizes queue variance.
+- **Safety Guarantee**: Every neural inference output is validated and clamped by the `SafetySupervisor` before signal actuation.
+- **SUMO / TraCI Interoperability**: `SimulationAdapter` auto-detects local SUMO binaries on PATH and seamlessly falls back to `JunctionSimulator` on any standard CPU.
+
+### 2.5 Indian Traffic Standards (IRC:106)
 Converts heterogeneous vehicle classes into standardized Passenger Car Units:
 - Two-Wheeler / Motorbike: `0.5 PCU`
 - Passenger Car / Auto: `1.0 PCU`
@@ -44,7 +56,7 @@ Converts heterogeneous vehicle classes into standardized Passenger Car Units:
 
 ## 3. Technology Stack
 
-- **Backend**: Python 3.11+, FastAPI, Uvicorn, Pydantic v2, Pandas, NumPy, Scikit-learn, Joblib, OpenCV Headless, Pytest.
+- **Backend**: Python 3.11+, FastAPI, Uvicorn, Pydantic v2, Pandas, NumPy, Scikit-learn, Joblib, PyTorch (CPU), Gymnasium, Stable-Baselines3, TraCI, Sumolib, Pytest.
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Recharts, Lucide Icons.
 - **Data**: Pune Heterogeneous Traffic Count Dataset (Jan 11–18, 2023, 25 fps cumulative tripwire counters).
 
@@ -75,30 +87,47 @@ npm run dev
 
 ## 5. Automated Verification & Testing
 
-Run the full pytest suite (33 unit & integration tests):
+Run the full pytest suite (136 unit & integration tests):
 ```powershell
 cd D:\AI2
-python -m pytest backend/tests/test_system.py -v
+python -m pytest backend/tests/test_system.py backend/tests/test_rl_environment.py backend/tests/test_sumo_integration.py -v
 ```
 
 Tests verify:
 - PCU calculations according to Indian IRC:106 standard
-- Fixed-Time, Actuated, and Adaptive controller state machines
+- Fixed-Time, Actuated, Adaptive, and Deep RL controller state machines
 - Clearance interval transitions (Yellow & All-Red)
 - Minimum green and maximum green bounds clamping
 - Starvation prevention priority overrides
 - Actuated gap-out and max-out termination logic
 - Safety supervisor invariant verification and conflict rejection
 - Statistical percentile calculations (P50, P95)
+- Gymnasium `check_env` conformance for `TrafficSignalEnv`
+- Observation space bounds, action decoding/encoding roundtrips, reward calculation breakdowns
+- Stable-Baselines3 PPO initialization, prediction, and reproducibility across seeds
+- SUMO network generation, nodes, edges, connections, traffic light programs, and `.sumocfg` configuration
+- Pune CCTV demand conversion to individual vehicle route definitions with heterogeneous Indian traffic classes
+- `SimulationAdapter` dual-engine execution and transparent fallback lifecycle management
 
 ---
 
-## 6. REST API Reference
+## 6. Deep Reinforcement Learning Training
+
+Train the PPO agent from the command line:
+```powershell
+cd D:\AI2
+python -m backend.rl.train --timesteps 100000 --episode-duration 900 --checkpoint-freq 10000
+```
+Trained model checkpoints are saved to `backend/models/rl/ppo_traffic_latest.zip`.
+
+---
+
+## 7. REST API Reference
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | Service health status and simulation step counter |
-| `GET` | `/api/controller/modes` | List available controller modes (Fixed, Actuated, Adaptive) |
+| `GET` | `/api/controller/modes` | List available controller modes (Fixed, Actuated, Adaptive, AI (PPO)) |
 | `POST` | `/api/controller/mode` | Set active controller mode |
 | `POST` | `/api/controller/step` | Advance discrete simulation by 1 second |
 | `POST` | `/api/simulation/start` | Start replay simulation session |
@@ -107,11 +136,18 @@ Tests verify:
 | `GET` | `/api/traffic/current` | Real-time approach queues, arrival rates, signal indications |
 | `GET` | `/api/traffic/history` | High-frequency time-series history |
 | `GET` | `/api/traffic/aggregated` | 10-minute interval aggregated PCU demand analytics |
-| `POST` | `/api/evaluation/run` | Execute 3-controller evaluation (Fixed vs Actuated vs Adaptive) |
-| `GET` | `/api/evaluation/full-summary`| Full 3-controller comparative performance matrix |
+| `POST` | `/api/evaluation/run` | Execute 4-controller evaluation (Fixed vs Actuated vs Adaptive vs Deep RL) |
+| `GET` | `/api/evaluation/full-summary`| Full comparative performance matrix |
 | `GET` | `/api/evaluation/export` | Download benchmark report as JSON or CSV |
 | `GET` | `/api/safety/events` | Audit log of safety supervisor override events |
 | `POST` | `/api/ml/train` | Train traffic demand forecasting model on CCTV data |
 | `GET` | `/api/ml/metrics` | Forecaster metrics vs persistence baselines |
 | `GET` | `/api/ml/predict` | Short-term prediction for next $N$ steps |
 | `GET` | `/api/decision-log` | Log of controller phase decisions and rationale |
+| `GET` | `/api/rl/status` | Deep RL model status, availability, and metadata |
+| `POST` | `/api/rl/train` | Trigger background PPO model training |
+| `GET` | `/api/rl/training/status` | Real-time training progress, timesteps, and rewards |
+| `POST` | `/api/rl/predict` | Single-step PPO policy action inference |
+| `GET` | `/api/rl/metrics` | RL training history and checkpoint directory |
+| `POST` | `/api/rl/evaluate` | Comparative evaluation benchmark with PPO policy |
+| `GET` | `/api/rl/comparison` | Strategy comparison summary including RL performance |

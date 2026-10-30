@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from backend.core.schema import ControllerMode, EvaluationReport
 from backend.core.state import app_state
 from backend.evaluation.evaluator import run_evaluation
+from backend.rl.api_routes import router as rl_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -34,6 +35,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# RL router
+app.include_router(rl_router)
 
 
 # ──────────────────────────────────────────────────────────
@@ -684,6 +688,7 @@ def evaluation_full_summary():
         "fixed_time": _fmt(r.fixed_time_baseline),
         "actuated": _fmt(r.actuated_baseline) if r.actuated_baseline else None,
         "adaptive": _fmt(r.adaptive_controller),
+        "deep_rl": _fmt(r.deep_rl_controller) if getattr(r, "deep_rl_controller", None) else None,
         "improvements_vs_fixed": {
             "queue_reduction_percent": r.queue_reduction_percent,
             "waiting_time_reduction_percent": r.waiting_time_reduction_percent,

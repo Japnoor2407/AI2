@@ -14,7 +14,7 @@ export interface ApproachData {
 export interface ControllerDecision {
   step: number
   timestamp_str: string
-  mode: 'FIXED_TIME' | 'ADAPTIVE'
+  mode: 'FIXED_TIME' | 'ACTUATED' | 'ADAPTIVE' | 'PREDICTION_ASSISTED' | 'COORDINATED' | 'DEEP_RL'
   active_phase_id: number
   phase_name: string
   signal_state: string
@@ -160,6 +160,7 @@ export interface FullEvaluationSummary {
   fixed_time?: FullEvalMetrics
   actuated?: FullEvalMetrics | null
   adaptive?: FullEvalMetrics
+  deep_rl?: FullEvalMetrics | null
   improvements_vs_fixed?: {
     queue_reduction_percent: number | null
     waiting_time_reduction_percent: number | null
@@ -170,6 +171,7 @@ export interface FullEvaluationSummary {
     waiting_time_reduction_percent: number | null
     throughput_improvement_percent: number | null
   } | null
+  improvements_vs_rl?: Record<string, number | null> | null
   summary?: string
   time_series_length?: number
 }
@@ -215,4 +217,55 @@ export interface ControllerModeInfo {
   value: string
   label: string
   description: string
+}
+
+// ── Deep RL (PPO) Types ───────────────────────────────────────────────────────
+
+export interface RLStatus {
+  model_available: boolean
+  model_loaded: boolean
+  model_path: string | null
+  sumo_available?: boolean
+  training_status: 'idle' | 'running' | 'done' | 'error'
+  metadata: RLTrainingMetadata
+}
+
+export interface RLTrainingMetadata {
+  total_timesteps?: number
+  episode_duration_sec?: number
+  simulator?: string
+  environment_type?: string
+  n_envs?: number
+  seed?: number
+  training_time_sec?: number
+  n_episodes_completed?: number
+  mean_ep_reward_last20?: number
+  saved_at?: string
+  model_file?: string
+}
+
+export interface RLTrainingStatus {
+  status: 'idle' | 'running' | 'done' | 'error'
+  is_running: boolean
+  timesteps_done: number
+  total_timesteps: number
+  progress_percent: number
+  elapsed_sec: number | null
+  mean_ep_reward: number | null
+  error: string | null
+}
+
+export interface RLPrediction {
+  phase_id: number
+  green_duration_sec: number
+  description: string
+  mode: 'DEEP_RL'
+}
+
+export interface RLComparison {
+  model_available: boolean
+  training_metadata: RLTrainingMetadata
+  training_status: string
+  mean_ep_reward: number | null
+  last_evaluation: unknown | null
 }

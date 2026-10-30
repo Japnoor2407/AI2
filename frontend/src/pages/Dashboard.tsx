@@ -7,7 +7,7 @@ import {
   Play, Pause, RotateCcw, Activity, AlertTriangle,
   Download, Database, Zap, Clock, TrendingUp, Video,
   MapPin, ChevronRight, Info, Shield, Brain, BarChart3,
-  CheckCircle, FileText,
+  CheckCircle, FileText, Cpu,
 } from 'lucide-react'
 
 import { api } from '../services/api'
@@ -22,6 +22,7 @@ import { AggregatedTrafficCharts } from '../components/AggregatedTrafficCharts'
 import { BenchmarkPanel } from '../components/BenchmarkPanel'
 import { SafetyAuditPanel } from '../components/SafetyAuditPanel'
 import { MLForecastPanel } from '../components/MLForecastPanel'
+import { RLTrainingPanel } from '../components/RLTrainingPanel'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ function simplifyRationale(raw: string | null | undefined): string {
   if (r.includes('predict') || r.includes('forecast')) return 'Anticipating heavier traffic ahead — adjusting signals early.'
   if (r.includes('yellow') || r.includes('clearance')) return 'Clearing the intersection safely before switching signals.'
   if (r.includes('all_red') || r.includes('all-red')) return 'Brief safety pause — all roads are stopped momentarily.'
+  if (r.includes('ppo') || r.includes('deep_rl') || r.includes('reinforcement')) return 'AI (PPO) chose the best signal based on learned traffic patterns.'
   if (r.includes('phase')) return 'Switching to the next group of roads.'
   return 'Monitoring live traffic and adjusting signals as needed.'
 }
@@ -65,6 +67,12 @@ const MODE_OPTIONS = [
     label: 'Timed Signals',
     desc: 'All signals follow a fixed schedule regardless of traffic',
     accent: 'bg-amber-600 text-white',
+  },
+  {
+    id: 'DEEP_RL' as const,
+    label: 'AI (PPO)',
+    desc: 'Deep reinforcement learning agent trained to minimise waiting time and queue length',
+    accent: 'bg-purple-600 text-white',
   },
 ] as const
 
@@ -123,7 +131,7 @@ function StatusDot({ running, paused }: { running: boolean; paused: boolean }) {
 
 // ─── Advanced sub-tab ────────────────────────────────────────────────────────
 
-type AdvancedSub = 'safety' | 'ml' | 'log' | 'dataset'
+type AdvancedSub = 'safety' | 'ml' | 'rl' | 'log' | 'dataset'
 
 function AdvancedTabBar({
   sub, setSub,
@@ -131,6 +139,7 @@ function AdvancedTabBar({
   const items: { id: AdvancedSub; label: string; icon: React.ReactNode }[] = [
     { id: 'safety', label: 'Safety Monitor', icon: <Shield size={13} /> },
     { id: 'ml',     label: 'AI Forecasting', icon: <Brain size={13} /> },
+    { id: 'rl',     label: 'RL Training (PPO)', icon: <Cpu size={13} /> },
     { id: 'log',    label: 'Decision Log',   icon: <FileText size={13} /> },
     { id: 'dataset',label: 'Dataset Info',   icon: <Database size={13} /> },
   ]
@@ -161,7 +170,7 @@ export default function Dashboard() {
   const [running, setRunning]   = useState(false)
   const [paused, setPaused]     = useState(false)
   const [speed, setSpeed]       = useState(1000)
-  const [mode, setMode]         = useState<'ADAPTIVE' | 'PREDICTION_ASSISTED' | 'ACTUATED' | 'FIXED_TIME'>('ADAPTIVE')
+  const [mode, setMode]         = useState<'ADAPTIVE' | 'PREDICTION_ASSISTED' | 'ACTUATED' | 'FIXED_TIME' | 'DEEP_RL'>('ADAPTIVE')
   const [status, setStatus]     = useState<ControllerStatus | null>(null)
   const [current, setCurrent]   = useState<TrafficCurrent | null>(null)
   const [history, setHistory]   = useState<HistoryPoint[]>([])
@@ -230,7 +239,7 @@ export default function Dashboard() {
     await fetchAll()
   }
 
-  const handleModeSwitch = async (m: 'ADAPTIVE' | 'PREDICTION_ASSISTED' | 'ACTUATED' | 'FIXED_TIME') => {
+  const handleModeSwitch = async (m: 'ADAPTIVE' | 'PREDICTION_ASSISTED' | 'ACTUATED' | 'FIXED_TIME' | 'DEEP_RL') => {
     setMode(m)
     await api.setMode(m)
   }
@@ -799,6 +808,7 @@ export default function Dashboard() {
 
             {advSub === 'safety'  && <SafetyAuditPanel />}
             {advSub === 'ml'      && <MLForecastPanel />}
+            {advSub === 'rl'      && <RLTrainingPanel />}
 
             {advSub === 'log' && (
               <div className="card space-y-3">

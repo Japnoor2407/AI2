@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+  <vType id="motorbike" accel="3.2" decel="4.5" length="2.2" width="0.9" minGap="0.8" maxSpeed="16.67" vClass="motorcycle" color="1,0.6,0.2"/>
+  <vType id="car" accel="2.6" decel="4.5" length="4.3" width="1.8" minGap="2.0" maxSpeed="13.89" vClass="passenger" color="0.2,0.8,0.9"/>
+  <vType id="bus" accel="1.2" decel="3.5" length="11.0" width="2.5" minGap="2.5" maxSpeed="11.11" vClass="bus" color="0.9,0.3,0.3"/>
+  <vType id="truck" accel="1.0" decel="3.0" length="9.5" width="2.5" minGap="2.5" maxSpeed="10.0" vClass="truck" color="0.7,0.7,0.2"/>
+  <route id="route_N_thru" edges="N2C C2S"/>
+  <route id="route_N_left" edges="N2C C2E"/>
+  <route id="route_N_right" edges="N2C C2W"/>
+  <route id="route_S_thru" edges="S2C C2N"/>
+  <route id="route_S_left" edges="S2C C2W"/>
+  <route id="route_S_right" edges="S2C C2E"/>
+  <route id="route_E_thru" edges="E2C C2W"/>
+  <route id="route_E_left" edges="E2C C2S"/>
+  <route id="route_E_right" edges="E2C C2N"/>
+  <route id="route_W_thru" edges="W2C C2E"/>
+  <route id="route_W_left" edges="W2C C2N"/>
+  <route id="route_W_right" edges="W2C C2S"/>
+  <vehicle id="car_0" type="car" route="route_N_thru" depart="1.00" departLane="best" departSpeed="max"/>
+  <vehicle id="car_1" type="car" route="route_N_right" depart="1.40" departLane="best" departSpeed="max"/>
+  <vehicle id="motorbike_2" type="motorbike" route="route_N_right" depart="1.00" departLane="best" departSpeed="max"/>
+  <vehicle id="motorbike_3" type="motorbike" route="route_N_left" depart="1.27" departLane="best" departSpeed="max"/>
+  <vehicle id="motorbike_4" type="motorbike" route="route_N_thru" depart="1.53" departLane="best" departSpeed="max"/>
+  <vehicle id="car_5" type="car" route="route_E_right" depart="2.00" departLane="best" departSpeed="max"/>
+  <vehicle id="motorbike_6" type="motorbike" route="route_E_thru" depart="2.00" departLane="best" departSpeed="max"/>
+  <vehicle id="bus_7" type="bus" route="route_E_left" depart="2.00" departLane="best" departSpeed="max"/>
+</routes>

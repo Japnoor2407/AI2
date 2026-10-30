@@ -32,6 +32,8 @@ from backend.core.schema import (
 from backend.core.controller_baseline import FixedTimeController
 from backend.core.controller_adaptive import AdaptiveController
 from backend.core.controller_actuated import ActuatedController
+from backend.core.controller_rl import RLTrafficController
+from backend.rl.model_manager import model_manager
 from backend.simulation.junction_layout import JunctionLayout
 from backend.simulation.replay_engine import JunctionSimulator
 from backend.data.loader import DatasetAdapter
@@ -189,6 +191,8 @@ def run_evaluation(
     fixed_green_sec: int = FIXED_CYCLE_SPLIT_SEC,
     scenario: str = "normal",
     demand_multiplier: float = 1.0,
+    seed: Optional[int] = None,
+    include_rl: Optional[bool] = None,
 ) -> EvaluationReport:
     """
     Run Fixed-Time, Actuated, and Adaptive controllers on identical demand
@@ -240,12 +244,26 @@ def run_evaluation(
     adaptive_metrics = _collect_metrics(adaptive_sim, adaptive_exec_ms)
     time_series_adaptive = _build_time_series(adaptive_sim)
 
+    # --- PPO RL RUN (Optional / Auto-detected) ---
+    should_run_rl = include_rl if include_rl is not None else model_manager.has_trained_model()
+    rl_metrics = None
+    time_series_rl = []
+    if should_run_rl:
+        try:
+            rl_ctrl = RLTrafficController(phases=layout.phases, episode_duration_sec=duration_sec)
+            rl_sim, rl_exec_ms = _run_controller(rl_ctrl, layout, arrivals_df, date_str, duration_sec)
+            rl_metrics = _collect_metrics(rl_sim, rl_exec_ms)
+            time_series_rl = _build_time_series(rl_sim)
+            logger.info("Evaluation: PPO RL run completed successfully.")
+        except Exception as e:
+            logger.warning(f"Evaluation: PPO RL run failed ({e}). Proceeding without RL metrics.")
+
     # Merge time series for comparative chart
     merged_ts = []
     for i, (f, u, a) in enumerate(
         zip(time_series_fixed, time_series_actuated, time_series_adaptive)
     ):
-        merged_ts.append({
+        pt = {
             "step": i,
             "time": f["time"],
             "fixed_queue_pcu": f["queue_pcu"],
@@ -257,7 +275,13 @@ def run_evaluation(
             "fixed_throughput_pcu": f["throughput_pcu"],
             "actuated_throughput_pcu": u["throughput_pcu"],
             "adaptive_throughput_pcu": a["throughput_pcu"],
-        })
+        }
+        if i < len(time_series_rl):
+            r = time_series_rl[i]
+            pt["rl_queue_pcu"] = r["queue_pcu"]
+            pt["rl_delay_sec"] = r["delay_sec"]
+            pt["rl_throughput_pcu"] = r["throughput_pcu"]
+        merged_ts.append(pt)
 
     now = datetime.datetime.now().isoformat()
     times = [r["time"] for r in time_series_fixed]
@@ -285,6 +309,13 @@ def run_evaluation(
         f"wait {_fmt_pct(imp_wait_vs_actuated)}."
     )
 
+    # RL Improvements vs Fixed-Time baseline
+    imp_rl_vs_fixed_queue = _safe_improvement(fixed_metrics.mean_queue_pcu, rl_metrics.mean_queue_pcu) if rl_metrics else None
+    imp_rl_vs_fixed_wait = _safe_improvement(fixed_metrics.average_wait_sec, rl_metrics.average_wait_sec) if rl_metrics else None
+    imp_rl_vs_fixed_thru = _safe_improvement(
+        fixed_metrics.total_throughput_pcu, rl_metrics.total_throughput_pcu, higher_is_better=True
+    ) if rl_metrics else None
+
     return EvaluationReport(
         scenario_id=f"{junction_id}_jan{date}_{scenario}",
         scenario_name=scenario,
@@ -292,9 +323,11 @@ def run_evaluation(
         evaluation_duration_sec=duration_sec,
         start_time=times[0] if times else "N/A",
         end_time=times[-1] if times else "N/A",
+        random_seed=seed,
         fixed_time_baseline=fixed_metrics,
         actuated_baseline=actuated_metrics,
         adaptive_controller=adaptive_metrics,
+        deep_rl_controller=rl_metrics,
         queue_reduction_percent=imp_queue_vs_fixed or 0.0,
         waiting_time_reduction_percent=imp_wait_vs_fixed or 0.0,
         throughput_improvement_percent=imp_thru_vs_fixed or 0.0,
@@ -303,6 +336,11 @@ def run_evaluation(
             "waiting_time_reduction_percent": imp_wait_vs_actuated,
             "throughput_improvement_percent": imp_thru_vs_actuated,
         },
+        improvements_vs_rl={
+            "rl_vs_fixed_queue_reduction_percent": imp_rl_vs_fixed_queue,
+            "rl_vs_fixed_wait_reduction_percent": imp_rl_vs_fixed_wait,
+            "rl_vs_fixed_throughput_improvement_percent": imp_rl_vs_fixed_thru,
+        } if rl_metrics else None,
         timestamp_evaluated=now,
         summary_text=summary,
         time_series=merged_ts,

@@ -57,4 +57,37 @@ export const api = {
   mlTrain: () => apiFetch('/api/ml/train', { method: 'POST' }),
   mlMetrics: () => apiFetch('/api/ml/metrics'),
   mlPredict: (horizon = 30) => apiFetch(`/api/ml/predict?horizon_steps=${horizon}`),
+
+  // ── Deep RL (PPO) endpoints ──────────────────────────────────────────────
+  rlStatus: () => apiFetch('/api/rl/status'),
+  rlTrain: (params?: {
+    total_timesteps?: number;
+    episode_duration_sec?: number;
+    n_envs?: number;
+    checkpoint_freq?: number;
+    seed?: number;
+    resume?: boolean;
+    simulator?: string;
+    sumo_gui?: boolean;
+  }) =>
+    apiFetch('/api/rl/train', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params ?? {}),
+    }),
+  rlTrainingStatus: () => apiFetch('/api/rl/training/status'),
+  rlPredict: (observation: number[], deterministic = true) =>
+    apiFetch('/api/rl/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ observation, deterministic }),
+    }),
+  rlMetrics: () => apiFetch('/api/rl/metrics'),
+  rlEvaluate: (params?: { duration_sec?: number; seed?: number }) =>
+    apiFetch('/api/rl/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params ?? {}),
+    }),
+  rlComparison: () => apiFetch('/api/rl/comparison'),
 }

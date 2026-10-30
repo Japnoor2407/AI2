@@ -58,24 +58,28 @@ export function BenchmarkPanel() {
       'Fixed-Time': data.fixed_time.mean_queue_pcu,
       'Actuated': data.actuated?.mean_queue_pcu ?? 0,
       'Adaptive': data.adaptive.mean_queue_pcu,
+      ...(data.deep_rl ? { 'Deep RL (PPO)': data.deep_rl.mean_queue_pcu } : {}),
     },
     {
       metric: 'Avg Wait (s)',
       'Fixed-Time': data.fixed_time.average_wait_sec,
       'Actuated': data.actuated?.average_wait_sec ?? 0,
       'Adaptive': data.adaptive.average_wait_sec,
+      ...(data.deep_rl ? { 'Deep RL (PPO)': data.deep_rl.average_wait_sec } : {}),
     },
     {
       metric: 'P95 Wait (s)',
       'Fixed-Time': data.fixed_time.p95_wait_sec,
       'Actuated': data.actuated?.p95_wait_sec ?? 0,
       'Adaptive': data.adaptive.p95_wait_sec,
+      ...(data.deep_rl ? { 'Deep RL (PPO)': data.deep_rl.p95_wait_sec } : {}),
     },
     {
       metric: 'Residual Queue (PCU)',
       'Fixed-Time': data.fixed_time.residual_queue_pcu,
       'Actuated': data.actuated?.residual_queue_pcu ?? 0,
       'Adaptive': data.adaptive.residual_queue_pcu,
+      ...(data.deep_rl ? { 'Deep RL (PPO)': data.deep_rl.residual_queue_pcu } : {}),
     },
   ] : []
 
@@ -214,6 +218,7 @@ export function BenchmarkPanel() {
                   <th className="py-2 px-3 font-semibold text-right">Fixed-Time Baseline</th>
                   <th className="py-2 px-3 font-semibold text-right">Actuated Baseline</th>
                   <th className="py-2 px-3 font-semibold text-right text-cyan-400">Adaptive (AI)</th>
+                  {data.deep_rl && <th className="py-2 px-3 font-semibold text-right text-purple-400">Deep RL (PPO)</th>}
                   <th className="py-2 px-3 font-semibold text-right">vs Fixed-Time</th>
                   <th className="py-2 px-3 font-semibold text-right">vs Actuated</th>
                 </tr>
@@ -224,6 +229,7 @@ export function BenchmarkPanel() {
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.fixed_time?.mean_queue_pcu.toFixed(2)} PCU</td>
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.actuated?.mean_queue_pcu.toFixed(2)} PCU</td>
                   <td className="py-2.5 px-3 text-right text-cyan-300 font-bold">{data.adaptive?.mean_queue_pcu.toFixed(2)} PCU</td>
+                  {data.deep_rl && <td className="py-2.5 px-3 text-right text-purple-300 font-bold">{data.deep_rl.mean_queue_pcu.toFixed(2)} PCU</td>}
                   <td className="py-2.5 px-3 text-right">{formatPct(data.improvements_vs_fixed?.queue_reduction_percent)}</td>
                   <td className="py-2.5 px-3 text-right">{formatPct(data.improvements_vs_actuated?.queue_reduction_percent)}</td>
                 </tr>
@@ -232,6 +238,7 @@ export function BenchmarkPanel() {
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.fixed_time?.max_queue_pcu.toFixed(2)} PCU</td>
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.actuated?.max_queue_pcu.toFixed(2)} PCU</td>
                   <td className="py-2.5 px-3 text-right text-cyan-300 font-bold">{data.adaptive?.max_queue_pcu.toFixed(2)} PCU</td>
+                  {data.deep_rl && <td className="py-2.5 px-3 text-right text-purple-300 font-bold">{data.deep_rl.max_queue_pcu.toFixed(2)} PCU</td>}
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                 </tr>
@@ -240,6 +247,7 @@ export function BenchmarkPanel() {
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.fixed_time?.average_wait_sec.toFixed(1)}s</td>
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.actuated?.average_wait_sec.toFixed(1)}s</td>
                   <td className="py-2.5 px-3 text-right text-cyan-300 font-bold">{data.adaptive?.average_wait_sec.toFixed(1)}s</td>
+                  {data.deep_rl && <td className="py-2.5 px-3 text-right text-purple-300 font-bold">{data.deep_rl.average_wait_sec.toFixed(1)}s</td>}
                   <td className="py-2.5 px-3 text-right">{formatPct(data.improvements_vs_fixed?.waiting_time_reduction_percent)}</td>
                   <td className="py-2.5 px-3 text-right">{formatPct(data.improvements_vs_actuated?.waiting_time_reduction_percent)}</td>
                 </tr>
@@ -248,6 +256,7 @@ export function BenchmarkPanel() {
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.fixed_time?.median_wait_sec.toFixed(1)}s</td>
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.actuated?.median_wait_sec.toFixed(1)}s</td>
                   <td className="py-2.5 px-3 text-right text-cyan-300 font-bold">{data.adaptive?.median_wait_sec.toFixed(1)}s</td>
+                  {data.deep_rl && <td className="py-2.5 px-3 text-right text-purple-300 font-bold">{data.deep_rl.median_wait_sec.toFixed(1)}s</td>}
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                 </tr>
@@ -256,6 +265,7 @@ export function BenchmarkPanel() {
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.fixed_time?.p95_wait_sec.toFixed(1)}s</td>
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.actuated?.p95_wait_sec.toFixed(1)}s</td>
                   <td className="py-2.5 px-3 text-right text-cyan-300 font-bold">{data.adaptive?.p95_wait_sec.toFixed(1)}s</td>
+                  {data.deep_rl && <td className="py-2.5 px-3 text-right text-purple-300 font-bold">{data.deep_rl.p95_wait_sec.toFixed(1)}s</td>}
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                 </tr>
@@ -264,6 +274,7 @@ export function BenchmarkPanel() {
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.fixed_time?.total_throughput_pcu.toFixed(1)} PCU</td>
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.actuated?.total_throughput_pcu.toFixed(1)} PCU</td>
                   <td className="py-2.5 px-3 text-right text-cyan-300 font-bold">{data.adaptive?.total_throughput_pcu.toFixed(1)} PCU</td>
+                  {data.deep_rl && <td className="py-2.5 px-3 text-right text-purple-300 font-bold">{data.deep_rl.total_throughput_pcu.toFixed(1)} PCU</td>}
                   <td className="py-2.5 px-3 text-right">{formatPct(data.improvements_vs_fixed?.throughput_improvement_percent)}</td>
                   <td className="py-2.5 px-3 text-right">{formatPct(data.improvements_vs_actuated?.throughput_improvement_percent)}</td>
                 </tr>
@@ -272,6 +283,7 @@ export function BenchmarkPanel() {
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.fixed_time?.residual_queue_pcu.toFixed(2)} PCU</td>
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.actuated?.residual_queue_pcu.toFixed(2)} PCU</td>
                   <td className="py-2.5 px-3 text-right text-cyan-300 font-bold">{data.adaptive?.residual_queue_pcu.toFixed(2)} PCU</td>
+                  {data.deep_rl && <td className="py-2.5 px-3 text-right text-purple-300 font-bold">{data.deep_rl.residual_queue_pcu.toFixed(2)} PCU</td>}
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                 </tr>
@@ -280,6 +292,7 @@ export function BenchmarkPanel() {
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.fixed_time?.starvation_occurrences ?? 0}</td>
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.actuated?.starvation_occurrences ?? 0}</td>
                   <td className="py-2.5 px-3 text-right text-cyan-300 font-bold">{data.adaptive?.starvation_occurrences ?? 0}</td>
+                  {data.deep_rl && <td className="py-2.5 px-3 text-right text-purple-300 font-bold">{data.deep_rl.starvation_occurrences ?? 0}</td>}
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                 </tr>
@@ -288,6 +301,7 @@ export function BenchmarkPanel() {
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.fixed_time?.execution_time_ms.toFixed(1)}ms</td>
                   <td className="py-2.5 px-3 text-right text-slate-300">{data.actuated?.execution_time_ms.toFixed(1)}ms</td>
                   <td className="py-2.5 px-3 text-right text-cyan-300 font-bold">{data.adaptive?.execution_time_ms.toFixed(1)}ms</td>
+                  {data.deep_rl && <td className="py-2.5 px-3 text-right text-purple-300 font-bold">{data.deep_rl.execution_time_ms.toFixed(1)}ms</td>}
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                   <td className="py-2.5 px-3 text-right text-slate-500">—</td>
                 </tr>
@@ -314,6 +328,7 @@ export function BenchmarkPanel() {
                   <Bar dataKey="Fixed-Time" fill="#64748b" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="Actuated" fill="#eab308" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="Adaptive" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                  {data?.deep_rl && <Bar dataKey="Deep RL (PPO)" fill="#a855f7" radius={[4, 4, 0, 0]} />}
                 </BarChart>
               </ResponsiveContainer>
             </div>

@@ -16,6 +16,7 @@ class ControllerMode(str, Enum):
     ADAPTIVE = "ADAPTIVE"
     PREDICTION_ASSISTED = "PREDICTION_ASSISTED"
     COORDINATED = "COORDINATED"
+    DEEP_RL = "DEEP_RL"  # PPO-based deep reinforcement learning controller
 
 
 class VehicleClassCounts(BaseModel):
@@ -139,10 +140,12 @@ class EvaluationReport(BaseModel):
     actuated_baseline: Optional[MetricRecord] = None
     adaptive_controller: MetricRecord
     coordinated_controller: Optional[MetricRecord] = None
+    deep_rl_controller: Optional[MetricRecord] = None
     queue_reduction_percent: float
     waiting_time_reduction_percent: float
     throughput_improvement_percent: float
     improvements_vs_actuated: Optional[Dict[str, float]] = None
+    improvements_vs_rl: Optional[Dict[str, Optional[float]]] = None
     timestamp_evaluated: str
     summary_text: str
     time_series: List[Dict[str, Any]] = Field(default_factory=list)

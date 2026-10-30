@@ -15,6 +15,7 @@ from backend.core.config import FIXED_CYCLE_SPLIT_SEC
 from backend.core.controller_baseline import FixedTimeController
 from backend.core.controller_adaptive import AdaptiveController
 from backend.core.controller_actuated import ActuatedController
+from backend.core.controller_rl import RLTrafficController
 from backend.core.safety_layer import SafetySupervisor
 from backend.data.loader import DatasetAdapter
 from backend.simulation.junction_layout import JunctionLayout
@@ -35,6 +36,7 @@ class AppState:
         self.fixed_ctrl: Optional[FixedTimeController] = None
         self.actuated_ctrl: Optional[ActuatedController] = None
         self.adaptive_ctrl: Optional[AdaptiveController] = None
+        self.rl_ctrl: Optional[RLTrafficController] = None
         self.safety_supervisor: Optional[SafetySupervisor] = None
         self.sim: Optional[JunctionSimulator] = None
         self.last_decision: Optional[ControllerDecision] = None
@@ -81,6 +83,11 @@ class AppState:
             mode=ControllerMode.PREDICTION_ASSISTED,
             forecaster=getattr(self, "_ml_forecaster", None) or forecaster,
         )
+        self.rl_ctrl = RLTrafficController(
+            phases=self.layout.phases,
+            episode_duration_sec=duration_sec,
+            fallback_controller=AdaptiveController(phases=self.layout.phases),
+        )
         self.safety_supervisor = SafetySupervisor(
             intersection_id=junction_id,
             phases=self.layout.phases,
@@ -107,6 +114,8 @@ class AppState:
             return self.actuated_ctrl
         elif self.mode == ControllerMode.PREDICTION_ASSISTED:
             return self.prediction_ctrl or self.adaptive_ctrl
+        elif self.mode == ControllerMode.DEEP_RL:
+            return self.rl_ctrl or self.adaptive_ctrl
         else:
             return self.adaptive_ctrl
 
@@ -186,6 +195,8 @@ class AppState:
             self.adaptive_ctrl.reset()
         if getattr(self, "prediction_ctrl", None):
             self.prediction_ctrl.reset()
+        if getattr(self, "rl_ctrl", None):
+            self.rl_ctrl.reset()
         if self.safety_supervisor:
             self.safety_supervisor.reset()
         if self.sim:
