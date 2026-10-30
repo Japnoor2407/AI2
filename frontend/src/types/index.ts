@@ -307,9 +307,15 @@ export interface StrategyMetrics {
   controller_execution_time_ms: number
   avg_waiting_time_saved_per_vehicle_sec: number
   total_waiting_time_saved_sec: number
+  simulated_time_saved_sec?: number
+  projected_hourly_time_saved_min?: number
+  projected_daily_time_saved_hours?: number
+  vehicles_processed?: number
   waiting_time_saved_percent: number
   queue_reduction_percent: number
   throughput_improvement_percent: number
+  performance_verdict?: string
+  plain_english_analysis?: string
 }
 
 export interface StrategyRanking {

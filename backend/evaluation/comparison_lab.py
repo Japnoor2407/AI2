@@ -84,14 +84,20 @@ class StrategyMetrics(BaseModel):
     p95_wait_sec: float
     total_throughput_pcu: float
     total_arrived_vehicles: int
+    vehicles_processed: int = 0
     starvation_occurrences: int
     controller_execution_time_ms: float
     # Time-saved & improvement metrics vs Fixed-Time baseline
     avg_waiting_time_saved_per_vehicle_sec: float = 0.0
     total_waiting_time_saved_sec: float = 0.0
+    simulated_time_saved_sec: float = 0.0
+    projected_hourly_time_saved_min: float = 0.0
+    projected_daily_time_saved_hours: float = 0.0
     waiting_time_saved_percent: float = 0.0
     queue_reduction_percent: float = 0.0
     throughput_improvement_percent: float = 0.0
+    performance_verdict: str = "Baseline"
+    plain_english_analysis: str = ""
 
 
 class StrategyRanking(BaseModel):
@@ -246,12 +252,47 @@ def run_comparison_lab(
     for key, m in raw_metrics.items():
         meta = STRATEGY_METADATA.get(key, {"name": key, "category": "General", "description": ""})
         
-        # Time savings vs Fixed-Time
-        time_saved_per_veh = round(max(-60.0, fixed_base.average_wait_sec - m.average_wait_sec), 2)
-        total_time_saved = round(time_saved_per_veh * max(1, m.total_arrived_vehicles), 1)
-        wait_pct = round(((fixed_base.average_wait_sec - m.average_wait_sec) / max(0.01, fixed_base.average_wait_sec)) * 100.0, 2)
-        queue_pct = round(((fixed_base.mean_queue_pcu - m.mean_queue_pcu) / max(0.01, fixed_base.mean_queue_pcu)) * 100.0, 2)
-        thru_pct = round(((m.total_throughput_pcu - fixed_base.total_throughput_pcu) / max(0.01, fixed_base.total_throughput_pcu)) * 100.0, 2)
+        # Exact time savings vs Fixed-Time during the simulated period
+        time_saved_per_veh = round(fixed_base.average_wait_sec - m.average_wait_sec, 2)
+        veh_count = max(1, m.total_arrived_vehicles)
+        total_time_saved = round(time_saved_per_veh * veh_count, 1)
+
+        # Extrapolated projections
+        dur_hrs = max(0.01, duration_sec / 3600.0)
+        hourly_saved_sec = total_time_saved / dur_hrs
+        projected_hourly_min = round(hourly_saved_sec / 60.0, 1)
+        projected_daily_hours = round((hourly_saved_sec * 12.0) / 3600.0, 1)
+
+        # Baseline denominators (safe minimum 1.0 to avoid small-number division spikes)
+        base_wait = max(1.0, fixed_base.average_wait_sec)
+        base_queue = max(1.0, fixed_base.mean_queue_pcu)
+        base_thru = max(1.0, fixed_base.total_throughput_pcu)
+
+        wait_pct = round(((fixed_base.average_wait_sec - m.average_wait_sec) / base_wait) * 100.0, 1)
+        queue_pct = round(((fixed_base.mean_queue_pcu - m.mean_queue_pcu) / base_queue) * 100.0, 1)
+        thru_pct = round(((m.total_throughput_pcu - fixed_base.total_throughput_pcu) / base_thru) * 100.0, 1)
+
+        # Plain English performance verdict
+        if key == "fixed_time":
+            verdict = "Benchmark Baseline"
+            analysis = "Traditional fixed-interval cycle. Signals switch according to a predetermined timer regardless of actual road demand, causing unnecessary delays when approaches are empty."
+        elif wait_pct >= 25.0:
+            verdict = "Superior Optimization"
+            if key == "deep_rl":
+                analysis = f"Trained PPO neural network dynamically adapted green duration to incoming vehicle clusters, cutting delays by {wait_pct}% and maintaining smooth intersection discharge."
+            elif key == "max_pressure":
+                analysis = f"Max-Pressure algorithm effectively prioritized high-differential approaches, reducing queue buildup by {queue_pct}% and preventing congestion spillback."
+            else:
+                analysis = f"High performance: dynamically prioritized congested approaches and reduced average wait times by {wait_pct}%."
+        elif wait_pct > 0.0:
+            verdict = "Moderate Improvement"
+            analysis = f"Outperformed fixed-time control, saving {time_saved_per_veh}s per vehicle by responding to detected vehicle presence."
+        elif wait_pct == 0.0:
+            verdict = "Similar to Baseline"
+            analysis = "Performance matched baseline under this specific traffic window."
+        else:
+            verdict = "Increased Congestion"
+            analysis = f"Higher delays than baseline due to sub-optimal phase switching frequency or phase holdovers under this traffic pattern."
 
         results[key] = StrategyMetrics(
             key=key,
@@ -264,33 +305,36 @@ def run_comparison_lab(
             p95_wait_sec=m.p95_wait_sec,
             total_throughput_pcu=m.total_throughput_pcu,
             total_arrived_vehicles=m.total_arrived_vehicles,
+            vehicles_processed=int(m.total_throughput_vehicles or m.total_throughput_pcu),
             starvation_occurrences=m.starvation_occurrences,
             controller_execution_time_ms=m.controller_execution_time_ms,
             avg_waiting_time_saved_per_vehicle_sec=time_saved_per_veh,
             total_waiting_time_saved_sec=total_time_saved,
+            simulated_time_saved_sec=total_time_saved,
+            projected_hourly_time_saved_min=projected_hourly_min,
+            projected_daily_time_saved_hours=projected_daily_hours,
             waiting_time_saved_percent=wait_pct,
             queue_reduction_percent=queue_pct,
             throughput_improvement_percent=thru_pct,
+            performance_verdict=verdict,
+            plain_english_analysis=analysis,
         )
 
-    # 3. Strategy Ranking using a composite performance score
+    # 3. Strategy Ranking using a balanced 0-100 efficiency score
+    import numpy as np
     scores = {}
     for key, res in results.items():
-        # Score calculation:
-        # + 0.40 * wait_time_reduction_percent
-        # + 0.30 * queue_reduction_percent
-        # + 0.20 * throughput_improvement_percent
-        # - 5.0 * starvation_occurrences
-        wait_norm = res.waiting_time_saved_percent
-        queue_norm = res.queue_reduction_percent
-        thru_norm = res.throughput_improvement_percent
-        starve_penalty = min(20.0, res.starvation_occurrences * 4.0)
-
-        composite = round(0.40 * wait_norm + 0.30 * queue_norm + 0.20 * thru_norm - starve_penalty, 2)
-        # Baseline score normalized to 0.0
         if key == "fixed_time":
-            composite = 0.0
-        scores[key] = composite
+            scores[key] = 50.0  # Baseline index 50.0
+        else:
+            wait_norm = float(np.clip(res.waiting_time_saved_percent, -100.0, 100.0))
+            queue_norm = float(np.clip(res.queue_reduction_percent, -100.0, 100.0))
+            thru_norm = float(np.clip(res.throughput_improvement_percent, -50.0, 100.0))
+            starve_penalty = min(20.0, res.starvation_occurrences * 5.0)
+
+            raw = 0.45 * wait_norm + 0.35 * queue_norm + 0.20 * thru_norm - starve_penalty
+            score = round(float(np.clip(50.0 + raw * 0.5, 0.0, 100.0)), 1)
+            scores[key] = score
 
     sorted_keys = sorted(scores.keys(), key=lambda k: scores[k], reverse=True)
     rankings: List[StrategyRanking] = []
@@ -298,13 +342,12 @@ def run_comparison_lab(
         res = results[key]
         score = scores[key]
         if key == "fixed_time":
-            rationale = "Traditional baseline timer with fixed cycle splits. Used as the benchmark reference."
+            rationale = "Fixed predetermined timer baseline. Indexed reference score of 50.0."
         else:
             rationale = (
-                f"Achieved {res.waiting_time_saved_percent:+0.1f}% wait time reduction "
-                f"({res.avg_waiting_time_saved_per_vehicle_sec:+0.1f}s/veh saved) and "
-                f"{res.queue_reduction_percent:+0.1f}% shorter queues with "
-                f"{res.starvation_occurrences} starvation events."
+                f"{res.performance_verdict}: Saved {res.avg_waiting_time_saved_per_vehicle_sec:+0.1f}s/veh "
+                f"({res.waiting_time_saved_percent:+0.1f}% less wait) with {res.queue_reduction_percent:+0.1f}% queue reduction "
+                f"and {res.starvation_occurrences} starvation events."
             )
         rankings.append(
             StrategyRanking(
@@ -317,12 +360,13 @@ def run_comparison_lab(
         )
 
     best_strat = rankings[0]
+    best_m = results[best_strat.strategy_key]
     plain_summary = (
-        f"In a {duration_sec // 60}-minute evaluation at {junction_id}, {best_strat.strategy_name} "
-        f"ranked #1 overall. It saved an average of "
-        f"{results[best_strat.strategy_key].avg_waiting_time_saved_per_vehicle_sec} seconds per vehicle "
-        f"({results[best_strat.strategy_key].waiting_time_saved_percent}% less wait) compared to traditional fixed-time signals, "
-        f"delivering a total of {int(results[best_strat.strategy_key].total_waiting_time_saved_sec):,} seconds of commuter travel time saved."
+        f"In a {duration_sec // 60}-minute simulation at {junction_id}, {best_strat.strategy_name} "
+        f"ranked #1 with an efficiency score of {best_strat.composite_score}/100. "
+        f"It reduced average waiting time by {best_m.waiting_time_saved_percent}% (saving {best_m.avg_waiting_time_saved_per_vehicle_sec}s per vehicle), "
+        f"eliminating {int(best_m.total_waiting_time_saved_sec):,} seconds of simulated delay across {best_m.total_arrived_vehicles:,} vehicles. "
+        f"Extrapolating across a 12-hour active urban traffic day estimates ~{best_m.projected_daily_time_saved_hours:,.1f} hours of cumulative commuter time saved."
     )
 
     report = ComparisonLabReport(
@@ -402,14 +446,15 @@ def export_lab_csv(session_id: str) -> str:
     if not report:
         return ""
     lines = [
-        "Rank,Strategy,Category,MeanQueue_PCU,MaxQueue_PCU,AvgWait_Sec,P95Wait_Sec,Throughput_PCU,TimeSavedPerVeh_Sec,TotalTimeSaved_Sec,WaitReduction_Percent,QueueReduction_Percent"
+        "Rank,Strategy,Category,Score,AvgWait_Sec,TimeSavedPerVeh_Sec,SimulatedTimeSaved_Sec,ProjectedDailyHoursSaved,MeanQueue_Units,VehiclesProcessed,WaitReduction_Percent,QueueReduction_Percent,Verdict"
     ]
     for r in report.rankings:
         m = report.results[r.strategy_key]
         lines.append(
-            f"{r.rank},{m.name},{m.category},{m.mean_queue_pcu},{m.max_queue_pcu},{m.average_wait_sec},"
-            f"{m.p95_wait_sec},{m.total_throughput_pcu},{m.avg_waiting_time_saved_per_vehicle_sec},"
-            f"{m.total_waiting_time_saved_sec},{m.waiting_time_saved_percent}%,{m.queue_reduction_percent}%"
+            f"{r.rank},{m.name},{m.category},{r.composite_score},{m.average_wait_sec},"
+            f"{m.avg_waiting_time_saved_per_vehicle_sec},{m.simulated_time_saved_sec},"
+            f"{m.projected_daily_time_saved_hours},{m.mean_queue_pcu},{m.vehicles_processed},"
+            f"{m.waiting_time_saved_percent}%,{m.queue_reduction_percent}%,{m.performance_verdict}"
         )
     return "\n".join(lines)
 

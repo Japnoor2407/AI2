@@ -1,11 +1,13 @@
 {
-  "total_timesteps": 2048,
-  "episode_duration_sec": 120,
+  "total_timesteps": 51200,
+  "episode_duration_sec": 900,
+  "simulator": "auto",
+  "environment_type": "junction_sim",
   "n_envs": 1,
   "seed": 42,
-  "training_time_sec": 28.6,
-  "n_episodes_completed": 496,
-  "mean_ep_reward_last20": -0.434,
+  "training_time_sec": 899.3,
+  "n_episodes_completed": 1563,
+  "mean_ep_reward_last20": 0.1301,
   "hyperparams": {
     "learning_rate": "0.0003",
     "n_steps": "2048",
@@ -18,8 +20,8 @@
     "vf_coef": "0.5",
     "max_grad_norm": "0.5",
     "verbose": "1",
-    "policy_kwargs": "{'net_arch': [{'pi': [128, 128], 'vf': [128, 128]}]}"
+    "policy_kwargs": "{'net_arch': {'pi': [128, 128], 'vf': [128, 128]}}"
   },
-  "saved_at": "2026-10-30T16:08:44.989505",
+  "saved_at": "2026-10-30T18:22:49.420106",
   "model_file": "ppo_traffic_latest.zip"
 }

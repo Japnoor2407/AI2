@@ -26,7 +26,14 @@ htmlcov/
 
 # RL models (large binary weights)
 backend/models/rl/*.zip
+backend/models/rl/*.pkl
 !backend/models/rl/.gitkeep
+
+# Evaluation lab generated report sessions
+backend/evaluation/reports/*.json
+
+# Machine learning generated weights
+backend/models/saved_models/*.joblib
 
 # Temporary / scratch scripts
 backend/scratch_*.py

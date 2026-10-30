@@ -1,4 +1,4 @@
-# SIH1607 — AI-Based Adaptive Traffic Signal Optimization Agent
+# AI2 — Intelligent Adaptive Traffic Signal Optimization System
 
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/Frontend-React_19_Vite_TS-61DAFB?logo=react)](https://react.dev)
@@ -8,144 +8,159 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x_CPU-ee4c2c?logo=pytorch)](https://pytorch.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## 1. Problem Statement (SIH1607)
-Urban intersections in Indian cities suffer from severe congestion, vehicle delay, and excessive emissions due to outdated pre-timed fixed traffic signals that cannot adapt to dynamic, heterogeneous traffic conditions.
-
-This system implements an end-to-end intelligent traffic signal controller operating directly on empirical traffic surveillance data from Pune, Maharashtra (Pune Traffic Police Commissioner CCTV dataset, Jan 2023). It dynamically allocates green durations based on real-time demand, enforces traffic safety clearance intervals, prevents vehicle starvation, and rigorously benchmarks against both fixed-time and actuated baselines.
+An intelligent, safety-verified urban traffic signal optimization platform powered by Deep Reinforcement Learning (PPO), mathematical network algorithms, and real empirical traffic camera surveillance data from Pune, India.
 
 ---
 
-## 2. Key Capabilities & System Architecture
+## 🚦 Overview
 
-### 2.1 Multi-Strategy Benchmarking Engine
-The system supports 5 independently selectable and testable traffic control strategies:
-- **Fixed-Time Baseline**: Cycle-based signal controller with configurable phase splits, yellow clearance (3s), and all-red clearance (2s).
-- **Actuated Baseline**: Standard demand-responsive gap-out and max-out controller with passage time extensions and safe phase transitions.
-- **Weighted Adaptive (AI)**: Multi-objective scoring model optimizing queue length, arrival rate, waiting delay, and starvation prevention.
-- **Max-Pressure Controller**: Advanced feedback control evaluating input vs output queue pressure differences and prioritizing maximal congestion relief.
-- **Deep Reinforcement Learning (PPO)**: Neural network policy trained via Proximal Policy Optimization across repeated simulation episodes.
+Traditional traffic lights operate on rigid, pre-timed timers. They keep motorists waiting at red lights even when cross-streets are completely empty, leading to unnecessary delays, heavy congestion, fuel wastage, and slowed emergency responses.
 
-### 2.2 Strategy Comparison Lab
-- **Guaranteed Identical Demand**: Evaluates all selected controllers sequentially against the exact same vehicle arrival sequence, timestamps, and random seed.
-- **Configurable Durations**: 5m (300s), 10m (600s), 15m (900s), 30m (1800s), 45m (2700s), 60m (3600s).
-- **Exact Time-Saved Calculation**:
-  - Average waiting time saved per vehicle: $\Delta W = W_{\text{fixed}} - W_{\text{strategy}}$
-  - Total travel time saved: $T_{\text{saved}} = \Delta W \times N_{\text{vehicles}}$
-  - Percentage wait time reduction: $\frac{W_{\text{fixed}} - W_{\text{strategy}}}{W_{\text{fixed}}} \times 100\%$
-- **Multi-Metric Composite Ranking**: Ranks controllers from #1 to #5 based on balanced delay reduction, queue reduction, throughput, and starvation penalties, accompanied by readable plain-English justifications.
-- **Session Persistence & Export**: Automatically saves reports to disk with one-click CSV and JSON downloads.
-
-### 2.3 Emergency Vehicle Priority (EVP) System
-- **Conflict-Free Preemption**: Detects approaching emergency vehicles (Ambulance, Fire Engine, Police) and prioritizes their movement.
-- **Safe Clearance Protocols**: Transitions smoothly through yellow (3s) and all-red (2s) clearance intervals before granting priority green.
-- **Green Extension**: Holds green until the emergency vehicle clears, then returns control smoothly to the active background controller.
-- **Audit Logging**: Full audit trail of EVP dispatches, approach paths, and clearance latencies.
-
-### 2.2 Independent Safety Supervisor Boundary (Phase 2)
-- **Zero-Conflict Invariants**: Guarantees no two conflicting movements receive green simultaneously.
-- **Clearance Interval Protection**: Preempts any premature termination of yellow or all-red safety clearance.
-- **Green Boundary Clamping**: Enforces minimum ($10\text{s}$) and maximum ($55\text{s}$) bounds regardless of optimization scores.
-- **Audit Logging**: Logs every supervisory intervention with active constraints and causal explanations at `/api/safety/events`.
-
-### 2.3 Machine Learning Demand Forecaster (Phase 3)
-- **Autoregressive Forecaster**: Gradient Boosting & Random Forest models predicting short-term arrivals.
-- **Chronological Validation**: Strict 70/15/15 time-series split preventing data leakage.
-- **Baseline Comparative Validation**: Evaluates model MAE and RMSE against naive persistence ($y_t = y_{t-1}$) and rolling moving-average baselines.
-- **Feature Attribution**: Quantifies predictive weight across lag intervals and velocity differentials.
-
-### 2.4 Deep Reinforcement Learning Controller (PPO)
-- **Custom Gymnasium Environment**: Standard-compliant `TrafficSignalEnv` driving a four-way intersection with real Pune CCTV arrival dynamics.
-- **21-Dimensional Observation Space**: Normalized queue lengths (4), arrival rates (4), mean delays (4), starvation timers (4), active phase one-hot (2), elapsed phase duration (1), intersection density (1), and episode progress (1).
-- **16-Discrete Action Space**: Combinatorial phase selection ($\text{Phase 1: NS}, \text{Phase 2: EW}$) paired with 8 green durations ($10\text{s}, 15\text{s}, 20\text{s}, 25\text{s}, 30\text{s}, 40\text{s}, 50\text{s}, 55\text{s}$).
-- **Multi-Objective Reward Function**:
-  $$R = 0.35 \cdot \Delta Q + 0.30 \cdot T - 0.20 \cdot W - 0.10 \cdot S - 0.05 \cdot P_{\text{switch}} - 0.05 \cdot P_{\text{balance}}$$
-  where $\Delta Q$ is queue improvement, $T$ is throughput discharged, $W$ is mean wait penalty, $S$ is starvation overage, $P_{\text{switch}}$ discourages rapid oscillations, and $P_{\text{balance}}$ minimizes queue variance.
-- **Safety Guarantee**: Every neural inference output is validated and clamped by the `SafetySupervisor` before signal actuation.
-- **SUMO / TraCI Interoperability**: `SimulationAdapter` auto-detects local SUMO binaries on PATH and seamlessly falls back to `JunctionSimulator` on any standard CPU.
-
-### 2.5 Indian Traffic Standards (IRC:106)
-Converts heterogeneous vehicle classes into standardized Passenger Car Units:
-- Two-Wheeler / Motorbike: `0.5 PCU`
-- Passenger Car / Auto: `1.0 PCU`
-- Bus (PMPML / Interstate): `2.5 PCU`
-- Commercial Heavy Truck: `2.5 PCU`
+**AI2** replaces static timers with an intelligent, multi-strategy signal controller:
+1. **Listens to real traffic**: Reads vehicle queues and arrival patterns calibrated from real-world Pune CCTV surveillance footage.
+2. **Dynamically optimizes green lights**: Employs Deep Reinforcement Learning (PPO), Max-Pressure, and Dynamic Adaptive algorithms to continuously shift green light time to where demand is highest.
+3. **Emergency Vehicle Priority (EVP)**: Provides an instant green corridor for ambulances, fire trucks, and police with safe clearance intervals.
+4. **Independent Safety Supervisor**: Mathematically guarantees that conflicting green lights can never occur and that yellow/all-red clearance intervals are strictly maintained.
+5. **Strategy Comparison Lab**: Allows city planners and evaluators to compare all 5 strategies under **strictly identical traffic demand** to measure exact waiting time saved.
 
 ---
 
-## 3. Technology Stack
+## 🌟 Key Features
 
-- **Backend**: Python 3.11+, FastAPI, Uvicorn, Pydantic v2, Pandas, NumPy, Scikit-learn, Joblib, PyTorch (CPU), Gymnasium, Stable-Baselines3, TraCI, Sumolib, Pytest.
-- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Recharts, Lucide Icons.
-- **Data**: Pune Heterogeneous Traffic Count Dataset (Jan 11–18, 2023, 25 fps cumulative tripwire counters).
+### 1. Strategy Comparison Lab (Central Benchmark)
+Run head-to-head experiments across all 5 traffic control strategies under identical vehicle arrivals:
+- **Identical Demand Replay**: Guarantees a 100% fair scientific comparison where every strategy experiences the exact same vehicles at the exact same seconds.
+- **Measurable Time Saved**: Calculates real delay reduction per vehicle, total cumulative hours saved, and queue reduction percentages.
+- **Fairness & Efficiency Index**: Computes Jain's Fairness Index to ensure side streets are not starved of green light.
+- **Plain-English Rationale**: Explains why the winning strategy outperformed traditional timers without confusing jargon.
+- **One-Click Export**: Save and download comprehensive benchmark reports in JSON and CSV formats.
+
+### 2. Five Independent Traffic Control Strategies
+| Strategy | Type | How It Works |
+| :--- | :--- | :--- |
+| **Fixed-Time** | Baseline | Traditional predetermined timer cycling on fixed green durations regardless of traffic. |
+| **Vehicle Actuated** | Sensor-Driven | Detects approaching vehicles and extends green time only when queues are present. |
+| **Dynamic Adaptive** | Multi-Factor | Continuously shifts green time towards roads with the longest queues and waiting times. |
+| **Max-Pressure** | Network Theory | Balances upstream queues against downstream exit capacity to maximize intersection throughput. |
+| **Deep AI (PPO)** | Reinforcement Learning | Deep neural network policy trained via Proximal Policy Optimization to minimize total network delay. |
+
+### 3. Emergency Vehicle Priority (EVP)
+- Instant dispatch for **Ambulance**, **Fire Engine**, and **Police** vehicles approaching from any direction.
+- Safely transitions through yellow (3s) and all-red (2s) clearance stages before opening an exclusive green corridor.
+- Prevents collisions while minimizing delay for critical emergency responders.
+
+### 4. Zero-Violation Safety Supervisor
+- **Hard Safety Invariants**: Conflicting green phases (e.g. North-South and East-West simultaneously) are physically impossible.
+- **Uninterruptible Clearance**: Yellow (3s) and all-red (2s) intervals cannot be cut short by any AI algorithm.
+- **Min/Max Green Clamping**: Enforces minimum (10s) and maximum (55s) green windows to avoid driver confusion and starvation.
+
+### 5. Empirical Pune CCTV Surveillance Dataset
+- Calibrated using real traffic surveillance from **Alankar Chowk, Pune, India** (Jan 2023).
+- Uses Indian Road Congress (**IRC:106**) Passenger Car Unit (PCU) standards:
+  - 🏍️ Two-Wheeler / Motorbike: `0.5 PCU`
+  - 🚗 Passenger Car / Auto: `1.0 PCU`
+  - 🚌 Bus: `2.5 PCU`
+  - 🚚 Commercial Heavy Truck: `2.5 PCU`
 
 ---
 
-## 4. Quick Start & Local Run
+## ⚡ Quick Start
 
 ### Prerequisites
-- Python 3.11+
-- Node.js v20+ and npm
+- **Python 3.11+**
+- **Node.js 18+** and **npm**
 
-### Terminal 1 — Backend API Server
+### 1. Start the Backend API Server
 ```powershell
-cd D:\AI2
-python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+# In repository root:
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
-- Interactive Swagger UI: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 - API Health Status: [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
+- Interactive API Documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
-### Terminal 2 — Frontend Operations Center
+### 2. Start the Frontend Dashboard
 ```powershell
-cd D:\AI2\frontend
+# In a new terminal:
+cd frontend
 npm run dev
 ```
-- Dashboard UI: [http://localhost:5173](http://localhost:5173)
+- Web Application: [http://localhost:5173](http://localhost:5173)
 
 ---
 
-## 5. Automated Verification & Testing
+## 🧪 3-Step Demo Walkthrough
 
-Run the full pytest suite (141 unit & integration tests):
+1. **Compare All 5 Strategies**:
+   - Open [http://localhost:5173](http://localhost:5173). You land on the **Strategy Comparison Lab**.
+   - Select a duration (e.g. `15m`), choose a traffic condition (`Normal` or `Rush Hour`), and click **Run Strategy Comparison**.
+   - View the overall winner badge, composite efficiency score (0–100), total waiting time saved, and plain-English performance rationale.
+
+2. **Test Live Simulation & Control**:
+   - Switch to the **Live Intersection** tab.
+   - Choose a control strategy (e.g. **Deep AI (PPO)** or **Max-Pressure**).
+   - Click **Start Simulation**. Watch the 2D junction display live signals, countdowns, and vehicle queues in real-time.
+
+3. **Dispatch an Emergency Vehicle**:
+   - In the Live Intersection tab, locate the **Emergency Vehicle Priority** panel on the right.
+   - Select **Ambulance** and approach **North**, then click **Dispatch Priority Corridor**.
+   - Observe the safety supervisor safely transition through yellow clearance before granting an uninterrupted green corridor.
+
+---
+
+## 🛠️ Automated Verification Suite
+
+Run the full pytest suite (141 unit, integration, and safety tests):
 ```powershell
-cd D:\AI2
-python -m pytest backend/tests/test_system.py backend/tests/test_rl_environment.py backend/tests/test_sumo_integration.py backend/tests/test_emergency_lab.py -v
+pytest backend/tests/test_system.py backend/tests/test_rl_environment.py backend/tests/test_sumo_integration.py backend/tests/test_emergency_lab.py -v
 ```
-
-Tests verify:
-- PCU calculations according to Indian IRC:106 standard
-- Fixed-Time, Actuated, Adaptive, and Deep RL controller state machines
-- Clearance interval transitions (Yellow & All-Red)
-- Minimum green and maximum green bounds clamping
-- Starvation prevention priority overrides
-- Actuated gap-out and max-out termination logic
-- Safety supervisor invariant verification and conflict rejection
-- Statistical percentile calculations (P50, P95)
-- Gymnasium `check_env` conformance for `TrafficSignalEnv`
-- Observation space bounds, action decoding/encoding roundtrips, reward calculation breakdowns
-- Stable-Baselines3 PPO initialization, prediction, and reproducibility across seeds
-- SUMO network generation, nodes, edges, connections, traffic light programs, and `.sumocfg` configuration
-- Pune CCTV demand conversion to individual vehicle route definitions with heterogeneous Indian traffic classes
-- `SimulationAdapter` dual-engine execution and transparent fallback lifecycle management
+All 141 tests pass locally on standard CPU without requiring cloud GPUs or paid tooling.
 
 ---
 
-## 6. Deep Reinforcement Learning Training
+## 💻 Tech Stack
 
-Train the PPO agent from the command line:
+- **Backend**: Python 3.11+, FastAPI, Uvicorn, Pydantic v2, Gymnasium, Stable-Baselines3 (PPO), PyTorch (CPU), NumPy, Pandas, Scikit-learn, TraCI / Sumolib, Pytest.
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Recharts, Lucide Icons.
+- **Traffic Modeling**: IRC:106 Indian PCU Standards, SUMO (Simulation of Urban MObility) adapter with dual-engine fallback to `JunctionSimulator`.
+
+---
+
+## 🔬 Advanced Architecture & RL Details
+
+<details>
+<summary>Click to view PPO Reinforcement Learning Specifications</summary>
+
+### Custom Gymnasium Environment (`TrafficSignalEnv`)
+- **Observation Space (21 dimensions, Box[0.0, 1.0])**:
+  - Normalized queue lengths per approach (4)
+  - Normalized vehicle arrival rates (4)
+  - Normalized average waiting delays (4)
+  - Approach starvation timers (4)
+  - Active signal phase one-hot encoding (2)
+  - Elapsed phase duration (1)
+  - Overall intersection density (1)
+  - Episode progress ratio (1)
+- **Action Space (Discrete 16)**:
+  - Phase selection: Phase 1 (North-South) or Phase 2 (East-West)
+  - Green duration selection: 8 intervals ($10\text{s}, 15\text{s}, 20\text{s}, 25\text{s}, 30\text{s}, 40\text{s}, 50\text{s}, 55\text{s}$)
+- **Reward Function**:
+  $$R = 0.35 \cdot \Delta Q + 0.30 \cdot T - 0.20 \cdot W - 0.10 \cdot S - 0.05 \cdot P_{\text{switch}} - 0.05 \cdot P_{\text{balance}}$$
+  Where $\Delta Q$ is queue clearance, $T$ is throughput, $W$ is waiting delay penalty, $S$ is starvation overage, $P_{\text{switch}}$ penalizes rapid phase toggling, and $P_{\text{balance}}$ penalizes variance across approaches.
+
+### Training Command
 ```powershell
-cd D:\AI2
 python -m backend.rl.train --timesteps 100000 --episode-duration 900 --checkpoint-freq 10000
 ```
-Trained model checkpoints are saved to `backend/models/rl/ppo_traffic_latest.zip`.
+Trained model checkpoints are stored in `backend/models/rl/ppo_traffic_latest.zip`.
+</details>
 
----
-
-## 7. REST API Reference
+<details>
+<summary>Click to view REST API Reference</summary>
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | Service health status and simulation step counter |
-| `GET` | `/api/controller/modes` | List available controller modes (Fixed, Actuated, Adaptive, AI (PPO)) |
+| `GET` | `/api/controller/modes` | List available controller modes |
 | `POST` | `/api/controller/mode` | Set active controller mode |
 | `POST` | `/api/controller/step` | Advance discrete simulation by 1 second |
 | `POST` | `/api/simulation/start` | Start replay simulation session |
@@ -153,27 +168,20 @@ Trained model checkpoints are saved to `backend/models/rl/ppo_traffic_latest.zip
 | `POST` | `/api/simulation/reset` | Reset simulation state |
 | `GET` | `/api/traffic/current` | Real-time approach queues, arrival rates, signal indications |
 | `GET` | `/api/traffic/history` | High-frequency time-series history |
-| `GET` | `/api/traffic/aggregated` | 10-minute interval aggregated PCU demand analytics |
-| `POST` | `/api/evaluation/run` | Execute 4-controller evaluation (Fixed vs Actuated vs Adaptive vs Deep RL) |
-| `GET` | `/api/evaluation/full-summary`| Full comparative performance matrix |
-| `GET` | `/api/evaluation/export` | Download benchmark report as JSON or CSV |
-| `GET` | `/api/safety/events` | Audit log of safety supervisor override events |
-| `POST` | `/api/ml/train` | Train traffic demand forecasting model on CCTV data |
-| `GET` | `/api/ml/metrics` | Forecaster metrics vs persistence baselines |
-| `GET` | `/api/ml/predict` | Short-term prediction for next $N$ steps |
-| `GET` | `/api/decision-log` | Log of controller phase decisions and rationale |
-| `GET` | `/api/rl/status` | Deep RL model status, availability, and metadata |
-| `POST` | `/api/rl/train` | Trigger background PPO model training |
-| `GET` | `/api/rl/training/status` | Real-time training progress, timesteps, and rewards |
-| `POST` | `/api/rl/predict` | Single-step PPO policy action inference |
-| `GET` | `/api/rl/metrics` | RL training history and checkpoint directory |
-| `POST` | `/api/rl/evaluate` | Comparative evaluation benchmark with PPO policy |
-| `GET` | `/api/rl/comparison` | Strategy comparison summary including RL performance |
-| `POST` | `/api/emergency/request` | Dispatch emergency vehicle preemption (Ambulance, Fire Truck, Police) |
-| `POST` | `/api/emergency/clear` | Clear active emergency priority and restore background controller |
-| `GET` | `/api/emergency/status` | Current active emergency vehicle priority status |
-| `GET` | `/api/emergency/events` | Audit log of past emergency vehicle preemption events |
 | `POST` | `/api/lab/run` | Execute multi-strategy benchmark under strictly identical demand |
 | `GET` | `/api/lab/history` | Historical comparison lab sessions list |
 | `GET` | `/api/lab/report/{id}` | Detailed strategy benchmark report with time-saved metrics |
 | `GET` | `/api/lab/export/{id}` | Download comparison lab session as CSV or JSON |
+| `POST` | `/api/emergency/request` | Dispatch emergency vehicle preemption (Ambulance, Fire Truck, Police) |
+| `POST` | `/api/emergency/clear` | Clear active emergency priority |
+| `GET` | `/api/emergency/status` | Current active emergency priority status |
+| `GET` | `/api/emergency/events` | Audit log of past emergency vehicle preemption events |
+| `GET` | `/api/safety/events` | Audit log of safety supervisor override events |
+| `POST` | `/api/rl/train` | Trigger background PPO model training |
+| `GET` | `/api/rl/training/status` | Real-time training progress and timesteps |
+</details>
+
+---
+
+## 📄 License
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
