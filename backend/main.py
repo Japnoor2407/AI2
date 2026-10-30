@@ -17,6 +17,13 @@ from pydantic import BaseModel
 from backend.core.schema import ControllerMode, EvaluationReport
 from backend.core.state import app_state
 from backend.evaluation.evaluator import run_evaluation
+from backend.core.emergency import EmergencyVehicleType
+from backend.evaluation.comparison_lab import (
+    run_comparison_lab,
+    get_lab_history,
+    get_lab_report,
+    export_lab_csv,
+)
 from backend.rl.api_routes import router as rl_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -65,6 +72,21 @@ class EvalRequest(BaseModel):
     duration_sec: int = 900
     scenario: str = "normal"
     demand_multiplier: float = 1.0
+
+
+class EmergencyRequest(BaseModel):
+    vehicle_type: str = "AMBULANCE"
+    approach_id: str = "N"
+
+
+class LabRunRequest(BaseModel):
+    junction_id: str = "AlankarChowk"
+    date: str = "11"
+    duration_sec: int = 900
+    scenario: str = "normal"
+    demand_multiplier: float = 1.0
+    selected_strategies: Optional[List[str]] = None
+    seed: Optional[int] = 42
 
 
 # ──────────────────────────────────────────────────────────
@@ -532,7 +554,7 @@ def controller_modes():
             {
                 "value": "FIXED_TIME",
                 "label": "Fixed-Time",
-                "description": "Predetermined cycle with fixed green splits. Baseline controller.",
+                "description": "Predetermined cycle with fixed green splits. Traditional baseline controller.",
             },
             {
                 "value": "ACTUATED",
@@ -541,8 +563,18 @@ def controller_modes():
             },
             {
                 "value": "ADAPTIVE",
-                "label": "Adaptive (AI)",
+                "label": "Weighted Adaptive (AI)",
                 "description": "Demand-scored adaptive controller with starvation prevention and anti-congestion override.",
+            },
+            {
+                "value": "MAX_PRESSURE",
+                "label": "Max-Pressure (Congestion-Based)",
+                "description": "Prioritizes approaches with the highest queue pressure difference between input and exit.",
+            },
+            {
+                "value": "DEEP_RL",
+                "label": "Deep Reinforcement Learning (PPO)",
+                "description": "Trained PPO neural network policy maximizing throughput and minimizing delay and queue variance.",
             },
             {
                 "value": "PREDICTION_ASSISTED",
@@ -551,6 +583,140 @@ def controller_modes():
             },
         ]
     }
+
+
+# ──────────────────────────────────────────────────────────
+# Emergency Vehicle Priority (EVP)
+# ──────────────────────────────────────────────────────────
+
+@app.post("/api/emergency/request")
+def emergency_request(req: EmergencyRequest):
+    """Dispatch emergency vehicle preemption (Ambulance, Fire Truck, Police)."""
+    if not app_state._initialized or app_state.emergency_manager is None:
+        raise HTTPException(400, "Simulation not initialized.")
+    try:
+        v_type = EmergencyVehicleType[req.vehicle_type.upper()]
+    except KeyError:
+        raise HTTPException(400, f"Invalid vehicle type: {req.vehicle_type}. Must be AMBULANCE, FIRE_TRUCK, or POLICE.")
+
+    current_step = app_state.sim.step_count if app_state.sim else 0
+    event = app_state.emergency_manager.request_priority(
+        vehicle_type=v_type,
+        approach_id=req.approach_id,
+        current_step=current_step,
+    )
+    return {
+        "status": "ok",
+        "event": event.model_dump(),
+        "message": f"Priority preemption granted for {v_type.value} on approach {req.approach_id}.",
+    }
+
+
+@app.post("/api/emergency/clear")
+def emergency_clear():
+    """Clear active emergency priority and return to normal signal control."""
+    if not app_state._initialized or app_state.emergency_manager is None:
+        raise HTTPException(400, "Simulation not initialized.")
+    current_step = app_state.sim.step_count if app_state.sim else 0
+    app_state.emergency_manager.clear_active_priority(current_step=current_step)
+    return {"status": "ok", "message": "Emergency vehicle cleared. Normal controller resumed."}
+
+
+@app.get("/api/emergency/status")
+def emergency_status():
+    """Get active emergency vehicle preemption status."""
+    if not app_state._initialized or app_state.emergency_manager is None:
+        return {"is_active": False, "active_event": None, "history_count": 0}
+    active = app_state.emergency_manager.active_event
+    return {
+        "is_active": active is not None,
+        "active_event": active.model_dump() if active else None,
+        "history_count": len(app_state.emergency_manager.event_history),
+    }
+
+
+@app.get("/api/emergency/events")
+def emergency_events():
+    """Get full log of emergency vehicle priority events."""
+    if not app_state._initialized or app_state.emergency_manager is None:
+        return {"events": [], "active_event": None}
+    return {
+        "events": [e.model_dump() for e in app_state.emergency_manager.event_history],
+        "active_event": app_state.emergency_manager.active_event.model_dump() if app_state.emergency_manager.active_event else None,
+    }
+
+
+# ──────────────────────────────────────────────────────────
+# Strategy Comparison Lab
+# ──────────────────────────────────────────────────────────
+
+@app.post("/api/lab/run")
+def lab_run(req: Optional[LabRunRequest] = None):
+    """Run a multi-strategy benchmark under strictly identical demand."""
+    j = req.junction_id if req else "AlankarChowk"
+    d = req.date if req else "11"
+    dur = req.duration_sec if req else 900
+    scenario = req.scenario if req else "normal"
+    mult = req.demand_multiplier if req else 1.0
+    strats = req.selected_strategies if req else None
+    seed = req.seed if req else 42
+
+    try:
+        report = run_comparison_lab(
+            junction_id=j,
+            date=d,
+            duration_sec=dur,
+            scenario=scenario,
+            demand_multiplier=mult,
+            selected_strategies=strats,
+            seed=seed,
+        )
+        return {
+            "status": "ok",
+            "session_id": report.session_id,
+            "report": report.model_dump(),
+        }
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"Dataset not found: {e}")
+    except Exception as e:
+        logger.exception("Strategy comparison lab failed")
+        raise HTTPException(500, f"Comparison error: {e}")
+
+
+@app.get("/api/lab/history")
+def lab_history(limit: int = Query(default=20, ge=1, le=100)):
+    """Retrieve history of completed Strategy Comparison Lab sessions."""
+    return {"status": "ok", "history": get_lab_history(limit=limit)}
+
+
+@app.get("/api/lab/report/{session_id}")
+def lab_report_detail(session_id: str):
+    """Retrieve a specific Strategy Comparison Lab report by session_id."""
+    report = get_lab_report(session_id)
+    if report is None:
+        raise HTTPException(404, f"Comparison report '{session_id}' not found.")
+    return {"status": "ok", "report": report.model_dump()}
+
+
+@app.get("/api/lab/export/{session_id}")
+def lab_export(session_id: str, format: str = Query(default="json", pattern="^(json|csv)$")):
+    """Export comparison report as JSON or CSV."""
+    report = get_lab_report(session_id)
+    if report is None:
+        raise HTTPException(404, f"Comparison report '{session_id}' not found.")
+
+    if format == "json":
+        return JSONResponse(
+            content=report.model_dump(),
+            headers={"Content-Disposition": f"attachment; filename=lab_{session_id}.json"},
+        )
+    else:
+        csv_str = export_lab_csv(session_id)
+        return StreamingResponse(
+            iter([csv_str]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=lab_{session_id}.csv"},
+        )
 
 
 # ──────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ class ControllerMode(str, Enum):
     FIXED_TIME = "FIXED_TIME"
     ACTUATED = "ACTUATED"
     ADAPTIVE = "ADAPTIVE"
+    MAX_PRESSURE = "MAX_PRESSURE"
     PREDICTION_ASSISTED = "PREDICTION_ASSISTED"
     COORDINATED = "COORDINATED"
     DEEP_RL = "DEEP_RL"  # PPO-based deep reinforcement learning controller

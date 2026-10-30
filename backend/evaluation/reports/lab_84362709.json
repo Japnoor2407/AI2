@@ -1,0 +1,557 @@
+{
+  "session_id": "84362709",
+  "junction_id": "AlankarChowk",
+  "date": "11",
+  "duration_sec": 30,
+  "scenario": "normal",
+  "demand_multiplier": 1.0,
+  "seed": 42,
+  "created_at": "2026-10-30T23:30:38.524485",
+  "strategies_tested": [
+    "fixed_time",
+    "adaptive"
+  ],
+  "results": {
+    "fixed_time": {
+      "key": "fixed_time",
+      "name": "Fixed-Time",
+      "category": "Baseline",
+      "description": "Standard predetermined green splits without vehicle sensor feedback.",
+      "mean_queue_pcu": 0.02,
+      "max_queue_pcu": 0.5,
+      "average_wait_sec": 0.25,
+      "p95_wait_sec": 0.0,
+      "total_throughput_pcu": 0.0,
+      "total_arrived_vehicles": 1,
+      "starvation_occurrences": 0,
+      "controller_execution_time_ms": 2.1,
+      "avg_waiting_time_saved_per_vehicle_sec": 0.0,
+      "total_waiting_time_saved_sec": 0.0,
+      "waiting_time_saved_percent": 0.0,
+      "queue_reduction_percent": 0.0,
+      "throughput_improvement_percent": 0.0
+    },
+    "adaptive": {
+      "key": "adaptive",
+      "name": "Weighted Adaptive",
+      "category": "AI / Heuristic",
+      "description": "Dynamic queue-based scoring with starvation prevention and delay fairness.",
+      "mean_queue_pcu": 0.02,
+      "max_queue_pcu": 0.5,
+      "average_wait_sec": 0.25,
+      "p95_wait_sec": 0.0,
+      "total_throughput_pcu": 0.0,
+      "total_arrived_vehicles": 1,
+      "starvation_occurrences": 0,
+      "controller_execution_time_ms": 1.6,
+      "avg_waiting_time_saved_per_vehicle_sec": 0.0,
+      "total_waiting_time_saved_sec": 0.0,
+      "waiting_time_saved_percent": 0.0,
+      "queue_reduction_percent": 0.0,
+      "throughput_improvement_percent": 0.0
+    }
+  },
+  "rankings": [
+    {
+      "rank": 1,
+      "strategy_key": "fixed_time",
+      "strategy_name": "Fixed-Time",
+      "composite_score": 0.0,
+      "rationale": "Traditional baseline timer with fixed cycle splits. Used as the benchmark reference."
+    },
+    {
+      "rank": 2,
+      "strategy_key": "adaptive",
+      "strategy_name": "Weighted Adaptive",
+      "composite_score": 0.0,
+      "rationale": "Achieved +0.0% wait time reduction (+0.0s/veh saved) and +0.0% shorter queues with 0 starvation events."
+    }
+  ],
+  "plain_english_summary": "In a 0-minute evaluation at AlankarChowk, Fixed-Time ranked #1 overall. It saved an average of 0.0 seconds per vehicle (0.0% less wait) compared to traditional fixed-time signals, delivering a total of 0 seconds of commuter travel time saved.",
+  "time_series": {
+    "fixed_time": [
+      {
+        "step": 0,
+        "time": "09:00:34",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 1,
+        "time": "09:00:35",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 2,
+        "time": "09:00:36",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 3,
+        "time": "09:00:37",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 4,
+        "time": "09:00:38",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 5,
+        "time": "09:00:39",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 6,
+        "time": "09:00:40",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 7,
+        "time": "09:00:41",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 8,
+        "time": "09:00:42",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 9,
+        "time": "09:00:43",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 10,
+        "time": "09:00:44",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 11,
+        "time": "09:00:45",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 12,
+        "time": "09:00:46",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 13,
+        "time": "09:00:47",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 14,
+        "time": "09:00:48",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 15,
+        "time": "09:00:49",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 16,
+        "time": "09:00:50",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 17,
+        "time": "09:00:51",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 18,
+        "time": "09:00:52",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 19,
+        "time": "09:00:53",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 20,
+        "time": "09:00:54",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 21,
+        "time": "09:00:55",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 22,
+        "time": "09:00:56",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 23,
+        "time": "09:00:57",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 24,
+        "time": "09:00:58",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 25,
+        "time": "09:00:59",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 26,
+        "time": "09:01:00",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 27,
+        "time": "09:01:01",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 28,
+        "time": "09:01:02",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 29,
+        "time": "09:01:03",
+        "queue_pcu": 0.5,
+        "throughput_pcu": 0.0,
+        "delay_sec": 7.5,
+        "phase": 1
+      }
+    ],
+    "adaptive": [
+      {
+        "step": 0,
+        "time": "09:00:34",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 1,
+        "time": "09:00:35",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 2,
+        "time": "09:00:36",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 3,
+        "time": "09:00:37",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 4,
+        "time": "09:00:38",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 5,
+        "time": "09:00:39",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 6,
+        "time": "09:00:40",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 7,
+        "time": "09:00:41",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 8,
+        "time": "09:00:42",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 9,
+        "time": "09:00:43",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 10,
+        "time": "09:00:44",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 11,
+        "time": "09:00:45",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 12,
+        "time": "09:00:46",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 13,
+        "time": "09:00:47",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 1
+      },
+      {
+        "step": 14,
+        "time": "09:00:48",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 15,
+        "time": "09:00:49",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 16,
+        "time": "09:00:50",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 17,
+        "time": "09:00:51",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 18,
+        "time": "09:00:52",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 19,
+        "time": "09:00:53",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 20,
+        "time": "09:00:54",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 21,
+        "time": "09:00:55",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 22,
+        "time": "09:00:56",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 23,
+        "time": "09:00:57",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 24,
+        "time": "09:00:58",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 25,
+        "time": "09:00:59",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 26,
+        "time": "09:01:00",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 27,
+        "time": "09:01:01",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 28,
+        "time": "09:01:02",
+        "queue_pcu": 0.0,
+        "throughput_pcu": 0.0,
+        "delay_sec": 0.0,
+        "phase": 2
+      },
+      {
+        "step": 29,
+        "time": "09:01:03",
+        "queue_pcu": 0.5,
+        "throughput_pcu": 0.0,
+        "delay_sec": 7.5,
+        "phase": 3
+      }
+    ]
+  }
+}

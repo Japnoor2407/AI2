@@ -70,6 +70,15 @@ class RewardCalculator:
         q_std = float(np.std(q_values)) if len(q_values) > 1 else 0.0
         balance_penalty = float(np.clip(q_std / 25.0, 0.0, 2.0))
 
+        # 7. Jain's Fairness Index across waiting times: (sum(w))^2 / (n * sum(w^2))
+        wait_times = [max(1.0, a.average_wait_time_sec) for a in curr_approaches.values()]
+        sum_w = sum(wait_times)
+        sum_sq_w = sum(w * w for w in wait_times)
+        n_approaches = max(1, len(wait_times))
+        jains_index = float((sum_w ** 2) / (n_approaches * sum_sq_w)) if sum_sq_w > 0 else 1.0
+        fairness_comp = float(np.clip(jains_index, 0.0, 1.0))
+        fairness_weight = getattr(self.weights, "fairness", 0.05)
+
         # Combined weighted sum
         total_reward = (
             self.weights.queue_improvement * queue_comp
@@ -78,6 +87,7 @@ class RewardCalculator:
             - self.weights.starvation * starvation_penalty
             - self.weights.switching * switching_penalty
             - self.weights.balance * balance_penalty
+            + fairness_weight * (fairness_comp - 0.5)
         )
 
         breakdown = {
@@ -88,6 +98,8 @@ class RewardCalculator:
             "comp_starvation_penalty": round(starvation_penalty, 4),
             "comp_switching_penalty": round(switching_penalty, 4),
             "comp_balance_penalty": round(balance_penalty, 4),
+            "comp_fairness": round(fairness_comp, 4),
+            "jains_fairness_index": round(jains_index, 4),
             "raw_delta_queue_pcu": round(delta_q, 2),
             "raw_throughput_pcu": round(throughput_discharged_pcu, 2),
             "raw_avg_wait_sec": round(avg_wait, 2),

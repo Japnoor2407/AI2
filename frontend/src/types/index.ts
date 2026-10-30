@@ -269,3 +269,86 @@ export interface RLComparison {
   mean_ep_reward: number | null
   last_evaluation: unknown | null
 }
+
+// ── Emergency Vehicle Priority (EVP) Types ────────────────────────────────────
+export type EmergencyVehicleType = 'AMBULANCE' | 'FIRE_TRUCK' | 'POLICE'
+
+export interface EmergencyEvent {
+  event_id: string
+  vehicle_type: EmergencyVehicleType
+  approach_id: string
+  target_phase_id: number
+  requested_at_step: number
+  cleared_at_step?: number
+  clearance_latency_sec?: number
+  status: string
+  notes?: string
+}
+
+export interface EmergencyStatus {
+  is_active: boolean
+  active_event: EmergencyEvent | null
+  history_count: number
+}
+
+// ── Strategy Comparison Lab Types ─────────────────────────────────────────────
+export interface StrategyMetrics {
+  key: string
+  name: string
+  category: string
+  description: string
+  mean_queue_pcu: number
+  max_queue_pcu: number
+  average_wait_sec: number
+  p95_wait_sec: number
+  total_throughput_pcu: number
+  total_arrived_vehicles: number
+  starvation_occurrences: number
+  controller_execution_time_ms: number
+  avg_waiting_time_saved_per_vehicle_sec: number
+  total_waiting_time_saved_sec: number
+  waiting_time_saved_percent: number
+  queue_reduction_percent: number
+  throughput_improvement_percent: number
+}
+
+export interface StrategyRanking {
+  rank: number
+  strategy_key: string
+  strategy_name: string
+  composite_score: number
+  rationale: string
+}
+
+export interface ComparisonLabReport {
+  session_id: string
+  junction_id: string
+  date: string
+  duration_sec: number
+  scenario: string
+  demand_multiplier: number
+  seed?: number
+  created_at: string
+  strategies_tested: string[]
+  results: Record<string, StrategyMetrics>
+  rankings: StrategyRanking[]
+  plain_english_summary: string
+  time_series?: Record<string, Array<{
+    step: number
+    time: string
+    queue_pcu: number
+    throughput_pcu: number
+    delay_sec: number
+    phase: number
+  }>>
+}
+
+export interface LabHistoryItem {
+  session_id: string
+  junction_id: string
+  duration_sec: number
+  created_at: string
+  strategies_tested: string[]
+  best_strategy: string
+  plain_english_summary: string
+}

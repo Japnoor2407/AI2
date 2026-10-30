@@ -5,24 +5,25 @@ import {
 } from 'recharts'
 import {
   Play, Pause, RotateCcw, Activity, AlertTriangle,
-  Download, Database, Zap, Clock, TrendingUp, Video,
+  Database, Zap, Clock, TrendingUp, Video,
   MapPin, ChevronRight, Info, Shield, Brain, BarChart3,
   CheckCircle, FileText, Cpu,
 } from 'lucide-react'
 
 import { api } from '../services/api'
 import type {
-  TrafficCurrent, ControllerStatus, EvaluationSummary,
+  TrafficCurrent, ControllerStatus,
   HistoryPoint, DecisionLogEntry,
 } from '../types'
 import { JunctionViz } from '../components/JunctionViz'
 import { SignalBadge } from '../components/SignalBadge'
 import { TrafficVideoFeed } from '../components/TrafficVideoFeed'
 import { AggregatedTrafficCharts } from '../components/AggregatedTrafficCharts'
-import { BenchmarkPanel } from '../components/BenchmarkPanel'
 import { SafetyAuditPanel } from '../components/SafetyAuditPanel'
 import { MLForecastPanel } from '../components/MLForecastPanel'
 import { RLTrainingPanel } from '../components/RLTrainingPanel'
+import StrategyComparisonLab from '../components/StrategyComparisonLab'
+import EmergencyPriorityControl from '../components/EmergencyPriorityControl'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -131,17 +132,18 @@ function StatusDot({ running, paused }: { running: boolean; paused: boolean }) {
 
 // ─── Advanced sub-tab ────────────────────────────────────────────────────────
 
-type AdvancedSub = 'safety' | 'ml' | 'rl' | 'log' | 'dataset'
+type AdvancedSub = 'safety' | 'ml' | 'rl' | 'lab' | 'log' | 'dataset'
 
 function AdvancedTabBar({
   sub, setSub,
 }: { sub: AdvancedSub; setSub: (s: AdvancedSub) => void }) {
   const items: { id: AdvancedSub; label: string; icon: React.ReactNode }[] = [
-    { id: 'safety', label: 'Safety Monitor', icon: <Shield size={13} /> },
-    { id: 'ml',     label: 'AI Forecasting', icon: <Brain size={13} /> },
-    { id: 'rl',     label: 'RL Training (PPO)', icon: <Cpu size={13} /> },
-    { id: 'log',    label: 'Decision Log',   icon: <FileText size={13} /> },
-    { id: 'dataset',label: 'Dataset Info',   icon: <Database size={13} /> },
+    { id: 'lab',     label: 'Strategy Lab',    icon: <BarChart3 size={13} /> },
+    { id: 'rl',      label: 'AI Controller (PPO)', icon: <Cpu size={13} /> },
+    { id: 'ml',      label: 'AI Forecasting', icon: <Brain size={13} /> },
+    { id: 'safety',  label: 'Safety Monitor', icon: <Shield size={13} /> },
+    { id: 'log',     label: 'Decision Log',   icon: <FileText size={13} /> },
+    { id: 'dataset', label: 'Dataset Info',   icon: <Database size={13} /> },
   ]
   return (
     <div className="flex items-center gap-1 flex-wrap">
@@ -174,12 +176,10 @@ export default function Dashboard() {
   const [status, setStatus]     = useState<ControllerStatus | null>(null)
   const [current, setCurrent]   = useState<TrafficCurrent | null>(null)
   const [history, setHistory]   = useState<HistoryPoint[]>([])
-  const [evalSummary, setEvalSummary] = useState<EvaluationSummary | null>(null)
   const [decisionLog, setDecisionLog] = useState<DecisionLogEntry[]>([])
-  const [evalRunning, setEvalRunning] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('overview')
-  const [advSub, setAdvSub]     = useState<AdvancedSub>('safety')
+  const [advSub, setAdvSub]     = useState<AdvancedSub>('lab')
   const [showModeTooltip, setShowModeTooltip] = useState<string | null>(null)
   const [sliderPos, setSliderPos] = useState<number | null>(null)
   const seekDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -267,26 +267,6 @@ export default function Dashboard() {
     await handleSeek(target)
   }
 
-  const runEvaluation = async () => {
-    setEvalRunning(true)
-    try {
-      await api.evaluationRun({ junction_id: 'AlankarChowk', date: '11', duration_sec: 600 })
-      const s = await api.evaluationSummary()
-      setEvalSummary(s)
-    } catch (e: unknown) {
-      alert('Evaluation error: ' + (e instanceof Error ? e.message : e))
-    } finally { setEvalRunning(false) }
-  }
-
-  const exportEval = async (fmt: 'json' | 'csv') => {
-    const res = await api.evaluationExport(fmt)
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `evaluation_results.${fmt}`; a.click()
-    URL.revokeObjectURL(url)
-  }
-
   const ctrl = current?.controller
 
   // Derived summary values
@@ -311,10 +291,10 @@ export default function Dashboard() {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview',          icon: <Activity size={14} /> },
-    { id: 'map',      label: 'Traffic Map',        icon: <MapPin size={14} /> },
+    { id: 'map',      label: 'Live Traffic',       icon: <MapPin size={14} /> },
     { id: 'video',    label: 'Live Camera',        icon: <Video size={14} /> },
     { id: 'compare',  label: 'Compare Strategies', icon: <BarChart3 size={14} /> },
-    { id: 'advanced', label: 'Advanced',           icon: <ChevronRight size={14} /> },
+    { id: 'advanced', label: 'AI & Reports',       icon: <ChevronRight size={14} /> },
   ]
 
   return (
@@ -718,6 +698,8 @@ export default function Dashboard() {
               <div className="text-sm font-bold text-slate-200">Historical Traffic Demand (10-Minute Blocks)</div>
               <AggregatedTrafficCharts intervalSec={600} />
             </div>
+            {/* Emergency Vehicle Priority Panel */}
+            <EmergencyPriorityControl />
           </div>
         )}
 
@@ -739,57 +721,7 @@ export default function Dashboard() {
         {/* ══ COMPARE STRATEGIES TAB ════════════════════════════════════════ */}
         {activeTab === 'compare' && (
           <div className="space-y-5">
-            {/* Quick evaluation controls (simple version) */}
-            <div className="card flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <div className="text-sm font-bold text-white">Compare Traffic Management Strategies</div>
-                <div className="text-xs text-slate-400 mt-0.5">
-                  Runs the same 10-minute traffic scenario under different strategies and shows which one works best.
-                </div>
-              </div>
-              <button
-                onClick={runEvaluation}
-                disabled={evalRunning}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-sm font-semibold transition-all"
-              >
-                <Activity size={14} className={evalRunning ? 'animate-spin' : ''} />
-                {evalRunning ? 'Comparing…' : 'Run Comparison'}
-              </button>
-            </div>
-
-            {/* Simple outcome cards if evaluation done */}
-            {evalSummary?.status === 'ok' && evalSummary.improvements && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {[
-                  { label: 'Less queuing', val: evalSummary.improvements.queue_reduction_percent, desc: 'reduction in vehicles waiting' },
-                  { label: 'Shorter waits', val: evalSummary.improvements.waiting_time_reduction_percent, desc: 'reduction in average wait time' },
-                  { label: 'More flow', val: evalSummary.improvements.throughput_improvement_percent, desc: 'more vehicles passed through' },
-                ].map(({ label, val, desc }) => (
-                  <div key={label} className="card text-center py-6">
-                    <div className={`text-4xl font-extrabold font-mono mb-1 ${val > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {val > 0 ? '+' : ''}{val.toFixed(1)}%
-                    </div>
-                    <div className="text-sm font-semibold text-white mb-1">{label}</div>
-                    <div className="text-xs text-slate-400">{desc}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Full benchmark panel */}
-            <BenchmarkPanel />
-
-            {/* Export */}
-            {evalSummary?.status === 'ok' && (
-              <div className="flex gap-3">
-                <button onClick={() => exportEval('json')} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-white border border-slate-700">
-                  <Download size={14} /> Export JSON
-                </button>
-                <button onClick={() => exportEval('csv')} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-white border border-slate-700">
-                  <Download size={14} /> Export CSV
-                </button>
-              </div>
-            )}
+            <StrategyComparisonLab />
           </div>
         )}
 
@@ -798,14 +730,15 @@ export default function Dashboard() {
           <div className="space-y-5">
             <div className="card flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-bold text-white">Advanced Technical View</div>
+                <div className="text-sm font-bold text-white">AI Controller, Strategy Lab & Technical Reports</div>
                 <div className="text-xs text-slate-400 mt-0.5">
-                  Safety monitoring, AI forecasting, signal decision logs, and dataset details.
+                  Strategy comparison, PPO AI training, safety monitoring, forecasting, signal logs, and dataset reference.
                 </div>
               </div>
               <AdvancedTabBar sub={advSub} setSub={setAdvSub} />
             </div>
 
+            {advSub === 'lab'     && <StrategyComparisonLab />}
             {advSub === 'safety'  && <SafetyAuditPanel />}
             {advSub === 'ml'      && <MLForecastPanel />}
             {advSub === 'rl'      && <RLTrainingPanel />}

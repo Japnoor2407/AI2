@@ -90,4 +90,36 @@ export const api = {
       body: JSON.stringify(params ?? {}),
     }),
   rlComparison: () => apiFetch('/api/rl/comparison'),
+
+  // ── Emergency Vehicle Priority (EVP) ────────────────────────────────────
+  emergencyRequest: (vehicle_type: string, approach_id: string) =>
+    apiFetch('/api/emergency/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vehicle_type, approach_id }),
+    }),
+  emergencyClear: () =>
+    apiFetch('/api/emergency/clear', { method: 'POST' }),
+  emergencyStatus: () => apiFetch('/api/emergency/status'),
+  emergencyEvents: () => apiFetch('/api/emergency/events'),
+
+  // ── Strategy Comparison Lab ──────────────────────────────────────────────
+  labRun: (params?: {
+    junction_id?: string;
+    date?: string;
+    duration_sec?: number;
+    scenario?: string;
+    demand_multiplier?: number;
+    selected_strategies?: string[];
+    seed?: number;
+  }) =>
+    apiFetch('/api/lab/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params ?? {}),
+    }),
+  labHistory: (limit = 20) => apiFetch(`/api/lab/history?limit=${limit}`),
+  labReportDetail: (sessionId: string) => apiFetch(`/api/lab/report/${sessionId}`),
+  labExportUrl: (sessionId: string, format: 'json' | 'csv') =>
+    `${BASE}/api/lab/export/${sessionId}?format=${format}`,
 }

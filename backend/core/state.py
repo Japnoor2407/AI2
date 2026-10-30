@@ -15,7 +15,9 @@ from backend.core.config import FIXED_CYCLE_SPLIT_SEC
 from backend.core.controller_baseline import FixedTimeController
 from backend.core.controller_adaptive import AdaptiveController
 from backend.core.controller_actuated import ActuatedController
+from backend.core.controller_max_pressure import MaxPressureController
 from backend.core.controller_rl import RLTrafficController
+from backend.core.emergency import EmergencyPriorityManager
 from backend.core.safety_layer import SafetySupervisor
 from backend.data.loader import DatasetAdapter
 from backend.simulation.junction_layout import JunctionLayout
@@ -36,7 +38,9 @@ class AppState:
         self.fixed_ctrl: Optional[FixedTimeController] = None
         self.actuated_ctrl: Optional[ActuatedController] = None
         self.adaptive_ctrl: Optional[AdaptiveController] = None
+        self.max_pressure_ctrl: Optional[MaxPressureController] = None
         self.rl_ctrl: Optional[RLTrafficController] = None
+        self.emergency_manager: Optional[EmergencyPriorityManager] = None
         self.safety_supervisor: Optional[SafetySupervisor] = None
         self.sim: Optional[JunctionSimulator] = None
         self.last_decision: Optional[ControllerDecision] = None
@@ -78,6 +82,7 @@ class AppState:
         )
         self.actuated_ctrl = ActuatedController(phases=self.layout.phases)
         self.adaptive_ctrl = AdaptiveController(phases=self.layout.phases)
+        self.max_pressure_ctrl = MaxPressureController(phases=self.layout.phases)
         self.prediction_ctrl = AdaptiveController(
             phases=self.layout.phases,
             mode=ControllerMode.PREDICTION_ASSISTED,
@@ -88,6 +93,7 @@ class AppState:
             episode_duration_sec=duration_sec,
             fallback_controller=AdaptiveController(phases=self.layout.phases),
         )
+        self.emergency_manager = EmergencyPriorityManager(phases=self.layout.phases)
         self.safety_supervisor = SafetySupervisor(
             intersection_id=junction_id,
             phases=self.layout.phases,
@@ -114,6 +120,8 @@ class AppState:
             return self.actuated_ctrl
         elif self.mode == ControllerMode.PREDICTION_ASSISTED:
             return self.prediction_ctrl or self.adaptive_ctrl
+        elif self.mode == ControllerMode.MAX_PRESSURE:
+            return self.max_pressure_ctrl or self.adaptive_ctrl
         elif self.mode == ControllerMode.DEEP_RL:
             return self.rl_ctrl or self.adaptive_ctrl
         else:
@@ -146,6 +154,12 @@ class AppState:
                 self.safety_events.append(event)
             else:
                 raise
+
+        # Check emergency priority preemption
+        if getattr(self, "emergency_manager", None):
+            decision = self.emergency_manager.intercept_decision(
+                decision, self.sim.step_count, ts
+            )
 
         # Safety supervisor validates and may override the decision
         if self.safety_supervisor is not None and not getattr(decision, "safety_override", False):
@@ -195,8 +209,12 @@ class AppState:
             self.adaptive_ctrl.reset()
         if getattr(self, "prediction_ctrl", None):
             self.prediction_ctrl.reset()
+        if getattr(self, "max_pressure_ctrl", None):
+            self.max_pressure_ctrl.reset()
         if getattr(self, "rl_ctrl", None):
             self.rl_ctrl.reset()
+        if getattr(self, "emergency_manager", None):
+            self.emergency_manager.reset()
         if self.safety_supervisor:
             self.safety_supervisor.reset()
         if self.sim:

@@ -37,6 +37,7 @@ class RewardWeights:
     starvation: float = 0.10
     switching: float = 0.05
     balance: float = 0.05
+    fairness: float = 0.05
 
 
 @dataclass

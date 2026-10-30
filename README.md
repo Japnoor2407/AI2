@@ -3,7 +3,7 @@
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/Frontend-React_19_Vite_TS-61DAFB?logo=react)](https://react.dev)
 [![TailwindCSS](https://img.shields.io/badge/Styling-Tailwind_CSS_v4-38B2AC?logo=tailwind-css)](https://tailwindcss.com)
-[![Tests](https://img.shields.io/badge/Tests-136%20Passed-success)](https://github.com/Japnoor2407/AI2)
+[![Tests](https://img.shields.io/badge/Tests-141%20Passed-success)](https://github.com/Japnoor2407/AI2)
 [![Gymnasium](https://img.shields.io/badge/RL-Gymnasium_PPO_SB3-blueviolet)](https://gymnasium.farama.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x_CPU-ee4c2c?logo=pytorch)](https://pytorch.org)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -17,11 +17,29 @@ This system implements an end-to-end intelligent traffic signal controller opera
 
 ## 2. Key Capabilities & System Architecture
 
-### 2.1 Multi-Strategy Benchmarking Engine (Phase 1)
+### 2.1 Multi-Strategy Benchmarking Engine
+The system supports 5 independently selectable and testable traffic control strategies:
 - **Fixed-Time Baseline**: Cycle-based signal controller with configurable phase splits, yellow clearance (3s), and all-red clearance (2s).
 - **Actuated Baseline**: Standard demand-responsive gap-out and max-out controller with passage time extensions and safe phase transitions.
-- **Adaptive Controller (AI)**: Multi-objective scoring model optimizing queue length, arrival rate, waiting delay, and starvation prevention.
-- **Scientific Metrics**: Computes mean queue, peak queue, mean delay, median wait (P50), 95th-percentile wait (P95), throughput (PCU), residual queues (unfinished trips), controller execution latency, and relative percentage improvements.
+- **Weighted Adaptive (AI)**: Multi-objective scoring model optimizing queue length, arrival rate, waiting delay, and starvation prevention.
+- **Max-Pressure Controller**: Advanced feedback control evaluating input vs output queue pressure differences and prioritizing maximal congestion relief.
+- **Deep Reinforcement Learning (PPO)**: Neural network policy trained via Proximal Policy Optimization across repeated simulation episodes.
+
+### 2.2 Strategy Comparison Lab
+- **Guaranteed Identical Demand**: Evaluates all selected controllers sequentially against the exact same vehicle arrival sequence, timestamps, and random seed.
+- **Configurable Durations**: 5m (300s), 10m (600s), 15m (900s), 30m (1800s), 45m (2700s), 60m (3600s).
+- **Exact Time-Saved Calculation**:
+  - Average waiting time saved per vehicle: $\Delta W = W_{\text{fixed}} - W_{\text{strategy}}$
+  - Total travel time saved: $T_{\text{saved}} = \Delta W \times N_{\text{vehicles}}$
+  - Percentage wait time reduction: $\frac{W_{\text{fixed}} - W_{\text{strategy}}}{W_{\text{fixed}}} \times 100\%$
+- **Multi-Metric Composite Ranking**: Ranks controllers from #1 to #5 based on balanced delay reduction, queue reduction, throughput, and starvation penalties, accompanied by readable plain-English justifications.
+- **Session Persistence & Export**: Automatically saves reports to disk with one-click CSV and JSON downloads.
+
+### 2.3 Emergency Vehicle Priority (EVP) System
+- **Conflict-Free Preemption**: Detects approaching emergency vehicles (Ambulance, Fire Engine, Police) and prioritizes their movement.
+- **Safe Clearance Protocols**: Transitions smoothly through yellow (3s) and all-red (2s) clearance intervals before granting priority green.
+- **Green Extension**: Holds green until the emergency vehicle clears, then returns control smoothly to the active background controller.
+- **Audit Logging**: Full audit trail of EVP dispatches, approach paths, and clearance latencies.
 
 ### 2.2 Independent Safety Supervisor Boundary (Phase 2)
 - **Zero-Conflict Invariants**: Guarantees no two conflicting movements receive green simultaneously.
@@ -87,10 +105,10 @@ npm run dev
 
 ## 5. Automated Verification & Testing
 
-Run the full pytest suite (136 unit & integration tests):
+Run the full pytest suite (141 unit & integration tests):
 ```powershell
 cd D:\AI2
-python -m pytest backend/tests/test_system.py backend/tests/test_rl_environment.py backend/tests/test_sumo_integration.py -v
+python -m pytest backend/tests/test_system.py backend/tests/test_rl_environment.py backend/tests/test_sumo_integration.py backend/tests/test_emergency_lab.py -v
 ```
 
 Tests verify:
@@ -151,3 +169,11 @@ Trained model checkpoints are saved to `backend/models/rl/ppo_traffic_latest.zip
 | `GET` | `/api/rl/metrics` | RL training history and checkpoint directory |
 | `POST` | `/api/rl/evaluate` | Comparative evaluation benchmark with PPO policy |
 | `GET` | `/api/rl/comparison` | Strategy comparison summary including RL performance |
+| `POST` | `/api/emergency/request` | Dispatch emergency vehicle preemption (Ambulance, Fire Truck, Police) |
+| `POST` | `/api/emergency/clear` | Clear active emergency priority and restore background controller |
+| `GET` | `/api/emergency/status` | Current active emergency vehicle priority status |
+| `GET` | `/api/emergency/events` | Audit log of past emergency vehicle preemption events |
+| `POST` | `/api/lab/run` | Execute multi-strategy benchmark under strictly identical demand |
+| `GET` | `/api/lab/history` | Historical comparison lab sessions list |
+| `GET` | `/api/lab/report/{id}` | Detailed strategy benchmark report with time-saved metrics |
+| `GET` | `/api/lab/export/{id}` | Download comparison lab session as CSV or JSON |
