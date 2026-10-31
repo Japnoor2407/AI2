@@ -252,16 +252,23 @@ def run_comparison_lab(
     for key, m in raw_metrics.items():
         meta = STRATEGY_METADATA.get(key, {"name": key, "category": "General", "description": ""})
         
-        # Exact time savings vs Fixed-Time during the simulated period
+        # Measured savings vs Fixed-Time during the simulated period.
+        # Only use actual vehicle count; never substitute 1 as a fallback multiplier.
         time_saved_per_veh = round(fixed_base.average_wait_sec - m.average_wait_sec, 2)
-        veh_count = max(1, m.total_arrived_vehicles)
-        total_time_saved = round(time_saved_per_veh * veh_count, 1)
+        # Use the strategy own arrived vehicle count (0 is valid; not inflated to 1).
+        veh_count = m.total_arrived_vehicles
+        total_time_saved = round(time_saved_per_veh * veh_count, 1) if veh_count > 0 else 0.0
 
-        # Extrapolated projections
-        dur_hrs = max(0.01, duration_sec / 3600.0)
-        hourly_saved_sec = total_time_saved / dur_hrs
-        projected_hourly_min = round(hourly_saved_sec / 60.0, 1)
-        projected_daily_hours = round((hourly_saved_sec * 12.0) / 3600.0, 1)
+        # Extrapolated projections: only meaningful when there are real savings.
+        # Rate = seconds_saved / simulated_hour; projection to 12h working day.
+        dur_hrs = max(0.001, duration_sec / 3600.0)
+        if total_time_saved > 0 and veh_count > 0:
+            hourly_saved_sec = total_time_saved / dur_hrs
+            projected_hourly_min = round(hourly_saved_sec / 60.0, 2)
+            projected_daily_hours = round((hourly_saved_sec * 12.0) / 3600.0, 2)
+        else:
+            projected_hourly_min = 0.0
+            projected_daily_hours = 0.0
 
         # Baseline denominators (safe minimum 1.0 to avoid small-number division spikes)
         base_wait = max(1.0, fixed_base.average_wait_sec)
@@ -305,7 +312,7 @@ def run_comparison_lab(
             p95_wait_sec=m.p95_wait_sec,
             total_throughput_pcu=m.total_throughput_pcu,
             total_arrived_vehicles=m.total_arrived_vehicles,
-            vehicles_processed=int(m.total_throughput_vehicles or m.total_throughput_pcu),
+            vehicles_processed=m.total_throughput_vehicles,  # from cumulative departures PCU
             starvation_occurrences=m.starvation_occurrences,
             controller_execution_time_ms=m.controller_execution_time_ms,
             avg_waiting_time_saved_per_vehicle_sec=time_saved_per_veh,
@@ -330,7 +337,9 @@ def run_comparison_lab(
             wait_norm = float(np.clip(res.waiting_time_saved_percent, -100.0, 100.0))
             queue_norm = float(np.clip(res.queue_reduction_percent, -100.0, 100.0))
             thru_norm = float(np.clip(res.throughput_improvement_percent, -50.0, 100.0))
-            starve_penalty = min(20.0, res.starvation_occurrences * 5.0)
+            # Starvation penalty: now event-based (not per-step), cap at 10 pts
+            # 1 event = 2 pts, max 5 events before cap. Typical good strategy: 0–2 events.
+            starve_penalty = min(10.0, res.starvation_occurrences * 2.0)
 
             raw = 0.45 * wait_norm + 0.35 * queue_norm + 0.20 * thru_norm - starve_penalty
             score = round(float(np.clip(50.0 + raw * 0.5, 0.0, 100.0)), 1)
@@ -361,12 +370,33 @@ def run_comparison_lab(
 
     best_strat = rankings[0]
     best_m = results[best_strat.strategy_key]
+
+    # Format projected daily savings — show minutes/seconds for small values
+    if best_m.projected_daily_time_saved_hours >= 1.0:
+        savings_str = f"~{best_m.projected_daily_time_saved_hours:.1f} hours"
+    elif best_m.projected_daily_time_saved_hours > 0:
+        savings_min = best_m.projected_daily_time_saved_hours * 60.0
+        savings_str = f"~{savings_min:.1f} minutes"
+    else:
+        savings_str = "no net saving vs baseline"
+
+    total_saved_str = (
+        f"{int(best_m.total_waiting_time_saved_sec):,} seconds"
+        if best_m.total_waiting_time_saved_sec >= 0
+        else "no saving vs baseline"
+    )
+
     plain_summary = (
-        f"In a {duration_sec // 60}-minute simulation at {junction_id}, {best_strat.strategy_name} "
-        f"ranked #1 with an efficiency score of {best_strat.composite_score}/100. "
-        f"It reduced average waiting time by {best_m.waiting_time_saved_percent}% (saving {best_m.avg_waiting_time_saved_per_vehicle_sec}s per vehicle), "
-        f"eliminating {int(best_m.total_waiting_time_saved_sec):,} seconds of simulated delay across {best_m.total_arrived_vehicles:,} vehicles. "
-        f"Extrapolating across a 12-hour active urban traffic day estimates ~{best_m.projected_daily_time_saved_hours:,.1f} hours of cumulative commuter time saved."
+        f"In a {duration_sec // 60}-minute simulation at {junction_id}, "
+        f"{best_strat.strategy_name} ranked #1 with an efficiency score of "
+        f"{best_strat.composite_score}/100. "
+        f"It reduced average waiting time by {best_m.waiting_time_saved_percent}% "
+        f"(saving {best_m.avg_waiting_time_saved_per_vehicle_sec}s per vehicle), "
+        f"eliminating {total_saved_str} of simulated delay across "
+        f"{best_m.total_arrived_vehicles:,} vehicles that arrived. "
+        f"Vehicles cleared through green: {best_m.vehicles_processed:,}. "
+        f"Extrapolating to a 12-hour active urban traffic day estimates {savings_str} "
+        f"of cumulative commuter time saved (simulation estimate, not measured)."
     )
 
     report = ComparisonLabReport(

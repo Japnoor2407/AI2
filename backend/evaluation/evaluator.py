@@ -103,12 +103,33 @@ def _collect_metrics(sim: JunctionSimulator, exec_time_ms: float = 0.0) -> Metri
         for app_id, v in per_approach_sum.items()
     }
 
-    # Total vehicles arrived: sum across all approaches, use last step cumulative value
     final_obs = sim.log[-1]
-    total_arrived_veh = sum(
-        a.arrivals_last_step.total_vehicles for a in final_obs.approaches.values()
-    )
     residual_queue = final_obs.total_active_queue_pcu
+
+    # Fix: total_arrived_vehicles uses cumulative_arrivals_pcu from approach state,
+    # NOT arrivals_last_step (which only measures the single final second).
+    # Convert PCU to vehicles using Indian mixed-traffic average ~0.8 PCU/veh.
+    cumulative_arr_pcu = sum(
+        a.cumulative_arrivals_pcu for a in final_obs.approaches.values()
+    )
+    total_arrived_veh = max(0, int(round(cumulative_arr_pcu / 0.8)))
+
+    # Vehicles cleared: cumulative departures converted to vehicles
+    cumulative_dep_pcu = sum(
+        a.cumulative_departures_pcu for a in final_obs.approaches.values()
+    )
+    total_processed_veh = max(0, int(round(cumulative_dep_pcu / 0.8)))
+
+    # Fix: starvation counted as EVENTS (approach first crosses threshold),
+    # not per-step flag (which multiplies counts by 100s during holdover).
+    starvation_events = 0
+    prev_starving: dict = {}
+    for obs in sim.log:
+        for app_id, app in obs.approaches.items():
+            was_starving = prev_starving.get(app_id, False)
+            if app.is_starving and not was_starving:
+                starvation_events += 1
+            prev_starving[app_id] = app.is_starving
 
     return MetricRecord(
         mean_queue_pcu=round(sum(all_queues) / n, 2),
@@ -117,10 +138,10 @@ def _collect_metrics(sim: JunctionSimulator, exec_time_ms: float = 0.0) -> Metri
         max_wait_sec=round(max(all_waits), 2),
         median_wait_sec=_compute_percentile(all_waits, 50),
         p95_wait_sec=_compute_percentile(all_waits, 95),
-        total_throughput_vehicles=int(final_obs.total_throughput_pcu / 1.0),
+        total_throughput_vehicles=total_processed_veh,
         total_throughput_pcu=round(final_obs.total_throughput_pcu, 2),
         total_arrived_vehicles=total_arrived_veh,
-        starvation_occurrences=starvation_count,
+        starvation_occurrences=starvation_events,
         residual_queue_pcu=round(residual_queue, 2),
         controller_execution_time_ms=round(exec_time_ms, 1),
         per_approach_stats=per_approach_stats,

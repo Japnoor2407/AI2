@@ -147,9 +147,17 @@ class JunctionSimulator:
             actual_discharge = min(old_queue + arrival_pcu, discharge)
             self._total_throughput_pcu += actual_discharge
 
-            # Waiting time estimate via Little's Law: W = Q / lambda
-            lam = max(arrival_rate_per_min / 60.0, 0.001)
-            avg_wait = new_queue / lam
+            # Waiting time: physical average wait of currently queued vehicles
+            # Strictly bounded by elapsed simulation time and red hold duration (cannot exceed elapsed seconds)
+            if new_queue <= 0.0:
+                avg_wait = 0.0
+            else:
+                max_possible_wait = min(float(max(1, self.step_count)), max(0.0, app.time_since_last_served_sec))
+                queue_service_delay = new_queue / max(0.1, app.saturation_flow_rate_pcu_per_sec)
+                avg_wait = min(
+                    float(max(1, self.step_count)),
+                    max_possible_wait * 0.5 + queue_service_delay
+                )
 
             # Time since last served
             if is_green:

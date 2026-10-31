@@ -127,7 +127,7 @@ export default function StrategyComparisonLab() {
               >
                 {history.map(h => (
                   <option key={h.session_id} value={h.session_id} className="bg-slate-900">
-                    {new Date(h.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — {h.best_strategy} ({h.duration_sec / 60}m)
+                    {new Date(h.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — {h.duration_sec / 60}min · {h.best_strategy}
                   </option>
                 ))}
               </select>
@@ -323,10 +323,10 @@ export default function StrategyComparisonLab() {
                 {Math.round(topMetrics?.total_waiting_time_saved_sec || 0).toLocaleString()}s
               </div>
               <div className="text-xs text-slate-400 mt-2">
-                Across <span className="text-white font-bold">{topMetrics?.total_arrived_vehicles.toLocaleString()}</span> vehicles
+                Across <span className="text-white font-bold">{topMetrics?.total_arrived_vehicles.toLocaleString()}</span> vehicles arrived
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
-                Measured in {report.duration_sec / 60}m test session
+                Cleared through green: <span className="font-mono text-slate-400">{(topMetrics?.vehicles_processed ?? 0).toLocaleString()}</span>
               </div>
             </div>
 
@@ -341,13 +341,18 @@ export default function StrategyComparisonLab() {
                 </span>
               </div>
               <div className="text-2xl font-bold text-violet-300 mt-1.5 font-mono">
-                ~{topMetrics?.projected_daily_time_saved_hours || Math.round(((topMetrics?.total_waiting_time_saved_sec || 0) / (report.duration_sec / 3600) * 12) / 3600)} hrs
+                {(() => {
+                  const hrs = topMetrics?.projected_daily_time_saved_hours || 0
+                  if (hrs >= 1.0) return `~${hrs.toFixed(1)} hrs`
+                  if (hrs > 0) return `~${(hrs * 60).toFixed(1)} min`
+                  return '—'
+                })()}
               </div>
               <div className="text-xs text-slate-400 mt-2">
-                Estimated city savings
+                Extrapolated from {report.duration_sec / 60}min test → 12h day
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
-                Assuming 12 active traffic hours/day
+                Simulation estimate, not measured
               </div>
             </div>
           </div>
@@ -435,7 +440,14 @@ export default function StrategyComparisonLab() {
                           </span>
                         </td>
                         <td className="py-3.5 px-4">
-                          <div className="font-bold text-white text-sm">{m.name}</div>
+                          <div className="font-bold text-white text-sm flex items-center gap-2">
+                            {m.name}
+                            {r.strategy_key === 'deep_rl' && m.avg_waiting_time_saved_per_vehicle_sec < -20 && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-950/80 border border-amber-600/50 text-amber-300 whitespace-nowrap">
+                                ⚠ Undertrained
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-slate-400">{m.category}</div>
                         </td>
                         <td className="py-3.5 px-4">
@@ -532,6 +544,12 @@ export default function StrategyComparisonLab() {
                       <p className="text-[11px] text-slate-300 leading-relaxed">
                         {m.plain_english_analysis || r.rationale}
                       </p>
+                      {r.strategy_key === 'deep_rl' && m.avg_waiting_time_saved_per_vehicle_sec < -20 && (
+                        <div className="mt-2 p-2 bg-amber-950/30 border border-amber-700/40 rounded-lg text-[11px] text-amber-300 leading-relaxed">
+                          ⚠ <strong>PPO model appears undertrained</strong> — results reflect insufficient training steps. 
+                          Retrain via the <em>AI &amp; Diagnostics → AI Controller (PPO)</em> tab for better performance.
+                        </div>
+                      )}
                     </div>
                   )
                 })}
