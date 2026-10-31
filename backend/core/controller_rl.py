@@ -126,9 +126,9 @@ class RLTrafficController:
           - EW arterial (2) routes to whichever of East (2) or West (4) has greater queue & wait demand.
         Also enforces starvation preemption if any approach exceeds STARVATION_THRESHOLD_SEC.
         """
-        # 1. Starvation preemption safety
+        # 1. Starvation preemption safety (proactive threshold at 65s before 80s hard limit)
         for app_id, app in approaches.items():
-            if app.time_since_last_served_sec >= STARVATION_THRESHOLD_SEC:
+            if app.time_since_last_served_sec >= 65.0:
                 for p in self.phases:
                     if app_id in p.served_approaches:
                         return p.phase_id, f"Starvation preemption: {p.name} ({app.time_since_last_served_sec:.0f}s wait)"
@@ -141,8 +141,8 @@ class RLTrafficController:
                 qs = getattr(approaches.get("South_Approach"), "estimated_queue_pcu", 0.0)
                 wn = getattr(approaches.get("North_Approach"), "time_since_last_served_sec", 0.0)
                 ws = getattr(approaches.get("South_Approach"), "time_since_last_served_sec", 0.0)
-                score_n = qn + (wn / 20.0)
-                score_s = qs + (ws / 20.0)
+                score_n = qn * 1.5 + (wn / 15.0)
+                score_s = qs * 1.5 + (ws / 15.0)
                 target = 3 if score_s > score_n else 1
                 name = self._get_phase_name(target)
                 return target, f"PPO NS policy → {name} (Q: {max(qn, qs):.1f} PCU)"
@@ -152,8 +152,8 @@ class RLTrafficController:
                 qw = getattr(approaches.get("West_Approach"), "estimated_queue_pcu", 0.0)
                 we = getattr(approaches.get("East_Approach"), "time_since_last_served_sec", 0.0)
                 ww = getattr(approaches.get("West_Approach"), "time_since_last_served_sec", 0.0)
-                score_e = qe + (we / 20.0)
-                score_w = qw + (ww / 20.0)
+                score_e = qe * 1.5 + (we / 15.0)
+                score_w = qw * 1.5 + (ww / 15.0)
                 target = 4 if score_w > score_e else 2
                 name = self._get_phase_name(target)
                 return target, f"PPO EW policy → {name} (Q: {max(qe, qw):.1f} PCU)"
@@ -209,23 +209,43 @@ class RLTrafficController:
         if self._in_transition:
             return self._handle_transition(current_step, timestamp_str)
 
-        # ── Green hold: re-emit current decision without re-querying model ──
+        # ── Green hold: re-emit current decision or gap-out if queue fully cleared ──
         if self._green_countdown > 0:
-            self._green_countdown -= 1
-            self.elapsed_in_phase += 1
-            phase_name = self._get_phase_name(self.active_phase_id)
-            decision = ControllerDecision(
-                step=current_step,
-                timestamp_str=timestamp_str,
-                mode=ControllerMode.DEEP_RL,
-                active_phase_id=self.active_phase_id,
-                phase_name=phase_name,
-                signal_state=SignalState.GREEN,
-                time_remaining_in_state=self._green_countdown,
-                elapsed_in_phase=self.elapsed_in_phase,
-                decision_rationale=f"{self._active_rationale} ({self._green_countdown}s remaining)",
+            active_p = next((p for p in self.phases if p.phase_id == self.active_phase_id), None)
+            served_apps = active_p.served_approaches if active_p else []
+            active_queue = sum(getattr(approaches.get(a), "estimated_queue_pcu", 0.0) for a in served_apps)
+            
+            # Check if active approach queue has discharged after safety min_green (10s)
+            # while other waiting approaches have pending queues or accumulating delay
+            waiting_apps = [a for k, a in approaches.items() if k not in served_apps]
+            max_waiting_queue = max([getattr(a, "estimated_queue_pcu", 0.0) for a in waiting_apps], default=0.0)
+            max_waiting_time = max([getattr(a, "time_since_last_served_sec", 0.0) for a in waiting_apps], default=0.0)
+            
+            can_gap_out = (
+                self.elapsed_in_phase >= MIN_GREEN_SEC
+                and active_queue < 0.2
+                and (max_waiting_queue >= 0.8 or max_waiting_time >= 25.0)
             )
-            return decision
+            
+            if can_gap_out:
+                # Early gap-out to pending demand: avoid wasting green capacity on empty approaches
+                self._green_countdown = 0
+            else:
+                self._green_countdown -= 1
+                self.elapsed_in_phase += 1
+                phase_name = self._get_phase_name(self.active_phase_id)
+                decision = ControllerDecision(
+                    step=current_step,
+                    timestamp_str=timestamp_str,
+                    mode=ControllerMode.DEEP_RL,
+                    active_phase_id=self.active_phase_id,
+                    phase_name=phase_name,
+                    signal_state=SignalState.GREEN,
+                    time_remaining_in_state=self._green_countdown,
+                    elapsed_in_phase=self.elapsed_in_phase,
+                    decision_rationale=f"{self._active_rationale} ({self._green_countdown}s remaining)",
+                )
+                return decision
 
         # ── Green expired: query model for next action ────────
         # For observation vector, arterial phase 1 is active if current phase is on NS corridor

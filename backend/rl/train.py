@@ -20,7 +20,7 @@ from typing import Optional
 
 import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 from stable_baselines3.common.env_checker import check_env as sb3_check_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
@@ -72,6 +72,7 @@ class TrafficMetricsCallback(BaseCallback):
         self.log_freq = log_freq
         self._episode_rewards: list = []
         self._episode_lengths: list = []
+        self.history: list = []
 
     def _on_step(self) -> bool:
         # Collect episode info from Monitor wrapper
@@ -83,6 +84,11 @@ class TrafficMetricsCallback(BaseCallback):
         if self.num_timesteps % self.log_freq == 0 and self._episode_rewards:
             mean_r = float(np.mean(self._episode_rewards[-20:]))
             mean_l = float(np.mean(self._episode_lengths[-20:]))
+            self.history.append({
+                "timestep": int(self.num_timesteps),
+                "mean_reward": round(mean_r, 4),
+                "mean_length": round(mean_l, 1),
+            })
             logger.info(
                 f"[step {self.num_timesteps:>7d}] "
                 f"mean_ep_reward={mean_r:+.3f}  mean_ep_length={mean_l:.0f}"
@@ -94,13 +100,20 @@ class TrafficMetricsCallback(BaseCallback):
 # Environment factory
 # ──────────────────────────────────────────────────────────
 
-def make_env(episode_duration_sec: int = 900, seed: int = 0, simulator: str = "auto", sumo_gui: bool = False):
+def make_env(
+    episode_duration_sec: int = 900,
+    seed: int = 0,
+    simulator: str = "auto",
+    sumo_gui: bool = False,
+    randomize_demand: bool = True,
+):
     """Factory function returning a Monitor-wrapped TrafficSignalEnv."""
     def _init():
         config = EnvConfig(
             episode_duration_sec=episode_duration_sec,
             simulator=simulator,
             sumo_gui=sumo_gui,
+            randomize_demand=randomize_demand,
         )
         env = TrafficSignalEnv(config=config)
         env = Monitor(env)
@@ -124,7 +137,7 @@ def train(
     hyperparams: Optional[dict] = None,
 ) -> PPO:
     """
-    Train a PPO agent on TrafficSignalEnv.
+    Train a PPO agent on TrafficSignalEnv with multi-scenario training and evaluation checkpoints.
 
     Args:
         total_timesteps:      Total training timesteps.
@@ -138,10 +151,10 @@ def train(
         hyperparams:          Override default PPO hyperparameters.
 
     Returns:
-        Trained PPO model.
+        Trained PPO model (best-performing checkpoint retained).
     """
     logger.info("=" * 60)
-    logger.info("AI2 — PPO Training Pipeline")
+    logger.info("AI2 — Enhanced PPO Training Pipeline")
     logger.info(f"  total_timesteps   : {total_timesteps:,}")
     logger.info(f"  episode_duration  : {episode_duration_sec}s")
     logger.info(f"  simulator         : {simulator}")
@@ -150,9 +163,15 @@ def train(
     logger.info(f"  resume            : {resume}")
     logger.info("=" * 60)
 
-    # Build vectorised environment
+    # Build vectorised environment with randomized multi-scenario demand
     env_fns = [
-        make_env(episode_duration_sec, seed + i, simulator=simulator, sumo_gui=sumo_gui)
+        make_env(
+            episode_duration_sec,
+            seed + i,
+            simulator=simulator,
+            sumo_gui=sumo_gui,
+            randomize_demand=True,
+        )
         for i in range(n_envs)
     ]
     vec_env = DummyVecEnv(env_fns)
@@ -165,6 +184,23 @@ def train(
         norm_reward=True,
         clip_obs=10.0,
         clip_reward=10.0,
+        gamma=0.99,
+    )
+
+    # Dedicated validation environment for EvalCallback
+    eval_env_fn = make_env(
+        episode_duration_sec=min(episode_duration_sec, 600),
+        seed=1000,
+        simulator=simulator,
+        sumo_gui=False,
+        randomize_demand=False,
+    )
+    eval_vec_env = DummyVecEnv([eval_env_fn])
+    eval_vec_env = VecNormalize(
+        eval_vec_env,
+        norm_obs=False,
+        norm_reward=False,
+        training=False,
         gamma=0.99,
     )
 
@@ -196,19 +232,41 @@ def train(
         save_vecnormalize=True,
         verbose=1,
     )
+    eval_freq = max(2048 // n_envs, 1024)
+    eval_cb = EvalCallback(
+        eval_vec_env,
+        best_model_save_path=checkpoint_dir,
+        log_path=checkpoint_dir,
+        eval_freq=eval_freq,
+        n_eval_episodes=3,
+        deterministic=True,
+        verbose=1,
+    )
     metrics_cb = TrafficMetricsCallback(log_freq=1000, verbose=1)
 
     # Train
     start = time.time()
     model.learn(
         total_timesteps=total_timesteps,
-        callback=[checkpoint_cb, metrics_cb],
+        callback=[checkpoint_cb, eval_cb, metrics_cb],
         reset_num_timesteps=not resume,
         progress_bar=False,
     )
     elapsed = time.time() - start
 
-    # Save final model and metadata
+    # Check if a superior best_model was saved during evaluation
+    best_model_path = Path(checkpoint_dir) / "best_model.zip"
+    retained_best = False
+    if best_model_path.exists():
+        try:
+            logger.info("Retaining best-performing evaluation checkpoint as production model.")
+            best_model = PPO.load(str(Path(checkpoint_dir) / "best_model"), env=vec_env)
+            model = best_model
+            retained_best = True
+        except Exception as e:
+            logger.warning(f"Could not load best_model ({e}); keeping final model.")
+
+    # Save final / best model and metadata
     metadata = {
         "total_timesteps": model.num_timesteps,
         "episode_duration_sec": episode_duration_sec,
@@ -223,9 +281,14 @@ def train(
             if metrics_cb._episode_rewards else 0.0,
             4,
         ),
+        "best_checkpoint_retained": retained_best,
+        "training_history": metrics_cb.history,
         "hyperparams": {k: str(v) for k, v in hp.items()},
     }
     model_manager.save(model, metadata=metadata)
+
+    logger.info(f"Training complete in {elapsed:.1f}s — model saved to {model_manager.latest_model_zip}")
+    return model
 
     logger.info(f"Training complete in {elapsed:.1f}s — model saved to {model_manager.latest_model_zip}")
     return model

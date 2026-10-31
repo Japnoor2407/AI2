@@ -7,7 +7,7 @@ import {
   Play, Pause, RotateCcw, Activity, AlertTriangle,
   Database, Zap, Clock, TrendingUp, Video,
   MapPin, Info, Shield, Brain, BarChart3,
-  CheckCircle, FileText, Cpu,
+  CheckCircle, FileText, Cpu, BookOpen,
 } from 'lucide-react'
 
 import { api } from '../services/api'
@@ -24,6 +24,7 @@ import { MLForecastPanel } from '../components/MLForecastPanel'
 import { RLTrainingPanel } from '../components/RLTrainingPanel'
 import StrategyComparisonLab from '../components/StrategyComparisonLab'
 import EmergencyPriorityControl from '../components/EmergencyPriorityControl'
+import StrategyGuide from '../components/StrategyGuide'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -175,7 +176,7 @@ function AdvancedTabBar({
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
-type Tab = 'compare' | 'live' | 'video' | 'advanced'
+type Tab = 'compare' | 'guide' | 'live' | 'video' | 'advanced'
 
 export default function Dashboard() {
   const [running, setRunning]   = useState(false)
@@ -300,6 +301,7 @@ export default function Dashboard() {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'compare',  label: 'Strategy Comparison Lab', icon: <BarChart3 size={15} />, badge: 'Primary' },
+    { id: 'guide',    label: 'Strategy Guide',          icon: <BookOpen size={15} /> },
     { id: 'live',     label: 'Live Intersection',       icon: <Activity size={15} /> },
     { id: 'video',    label: 'CCTV Camera',             icon: <Video size={15} /> },
     { id: 'advanced', label: 'AI & Diagnostics',        icon: <Cpu size={15} /> },
@@ -387,7 +389,14 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ══ 2. LIVE INTERSECTION (UNIFIED CONTROL & MAP) ═══════════════════ */}
+        {/* ══ 2. STRATEGY GUIDE (PLAIN ENGLISH REFERENCE) ═════════════════════ */}
+        {activeTab === 'guide' && (
+          <div className="space-y-6">
+            <StrategyGuide />
+          </div>
+        )}
+
+        {/* ══ 3. LIVE INTERSECTION (UNIFIED CONTROL & MAP) ═══════════════════ */}
         {activeTab === 'live' && (
           <div className="space-y-5">
 

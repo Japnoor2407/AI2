@@ -195,7 +195,8 @@ def _generate_telemetry_analysis(
         return (
             f"Fixed-Time baseline cycled predetermined splits without sensor feedback. "
             f"Processed {metrics.vehicles_processed} vehicles with an average wait of {metrics.average_wait_sec:.1f}s "
-            f"and P95 wait of {metrics.p95_wait_sec:.1f}s across {metrics.starvation_occurrences} starvation events."
+            f"and P95 wait of {metrics.p95_wait_sec:.1f}s across {metrics.starvation_occurrences} starvation events. "
+            f"No measurable improvement over fixed-time control is expected as this is the baseline reference."
         )
 
     # Analyze green allocations from actual simulation step log
@@ -513,7 +514,7 @@ def run_comparison_lab(
         strategies_tested=strategies_to_run,
         results=results,
         rankings=rankings,
-        most_consistent_strategy=most_consistent_name,
+        most_consistent_strategy=most_consistent_key,
         plain_english_summary=plain_summary,
         time_series=time_series_data,
     )

@@ -38,28 +38,30 @@ class RewardCalculator:
         Returns:
             (total_reward, breakdown_dict)
         """
-        # 1. Queue improvement: Q_before - Q_after
+        # 1. Queue improvement: Q_before - Q_after, normalized by baseline scale
         q_before = sum(a.estimated_queue_pcu for a in prev_approaches.values())
         q_after = sum(a.estimated_queue_pcu for a in curr_approaches.values())
         delta_q = q_before - q_after
-        # Normalize: 10 PCU reduction = +1.0
-        queue_comp = float(np.clip(delta_q / 10.0, -2.0, 2.0))
+        # Normalize: 10 PCU reduction = +1.0; mild residual queue scaling
+        queue_comp = float(np.clip((delta_q - 0.05 * q_after) / 10.0, -2.5, 2.5))
 
         # 2. Throughput reward
         # Theoretical max discharge during green = ~1.2 PCU/s (for dual-approach green) * duration
         max_possible_throughput = max(1.0, 1.2 * duration_sec)
         throughput_comp = float(np.clip(throughput_discharged_pcu / max_possible_throughput, 0.0, 2.0))
 
-        # 3. Waiting time penalty
+        # 3. Waiting time penalty (scaled so delays > 40s are penalized progressively)
         avg_wait = sum(a.average_wait_time_sec for a in curr_approaches.values()) / max(1, len(curr_approaches))
-        # 60s average wait = -1.0 penalty
-        wait_penalty = float(np.clip(avg_wait / 60.0, 0.0, 3.0))
+        wait_penalty = float(np.clip(avg_wait / 40.0, 0.0, 3.0))
 
-        # 4. Starvation penalty: severe penalty for any approach waiting > STARVATION_THRESHOLD_SEC
+        # 4. Starvation penalty: progressive penalty for any approach waiting > STARVATION_THRESHOLD_SEC
         starvation_overage = 0.0
         for a in curr_approaches.values():
             if a.time_since_last_served_sec > STARVATION_THRESHOLD_SEC:
                 starvation_overage += (a.time_since_last_served_sec - STARVATION_THRESHOLD_SEC)
+            elif a.time_since_last_served_sec > 50.0:
+                # Early warning penalty before hard starvation
+                starvation_overage += (a.time_since_last_served_sec - 50.0) * 0.3
         starvation_penalty = float(np.clip(starvation_overage / 40.0, 0.0, 3.0))
 
         # 5. Signal switching penalty: discourage switching every decision

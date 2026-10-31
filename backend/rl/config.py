@@ -33,9 +33,9 @@ class RewardWeights:
     """Weights for the multi-objective reward function."""
     queue_improvement: float = 0.35
     throughput: float = 0.30
-    waiting_time: float = 0.20
-    starvation: float = 0.10
-    switching: float = 0.05
+    waiting_time: float = 0.25
+    starvation: float = 0.20
+    switching: float = 0.02
     balance: float = 0.05
     fairness: float = 0.05
 
@@ -56,4 +56,5 @@ class EnvConfig:
     render_mode: str = "human"
     simulator: str = "auto"  # "auto" | "junction_sim" | "sumo"
     sumo_gui: bool = False
+    randomize_demand: bool = False
 

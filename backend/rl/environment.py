@@ -154,9 +154,24 @@ class TrafficSignalEnv(gym.Env):
         elif self.config.simulator == "junction_sim":
             use_sumo = False
 
+        # Prepare arrival profile with scenario / randomized demand variations
+        df_to_use = self._prepared_df.copy()
+        if options and "scenario" in options:
+            scenario = options["scenario"]
+            from backend.evaluation.comparison_lab import _apply_scenario_scaling
+            mult = options.get("demand_multiplier", 1.0)
+            df_to_use = _apply_scenario_scaling(df_to_use, scenario, mult)
+        elif self.config.randomize_demand and seed is not None:
+            # Deterministically cycle demand scenarios based on episode seed for diverse training
+            scenario_types = ["normal", "rush_hour", "low", "uneven"]
+            scenario = scenario_types[seed % len(scenario_types)]
+            from backend.evaluation.comparison_lab import _apply_scenario_scaling
+            mult = 1.5 if scenario == "rush_hour" else (0.7 if scenario == "low" else 1.0)
+            df_to_use = _apply_scenario_scaling(df_to_use, scenario, mult)
+
         self.sim = SimulationAdapter(
             layout=self.layout,
-            arrival_data=self._prepared_df,
+            arrival_data=df_to_use,
             date=self.config.date,
             use_sumo=use_sumo,
             sumo_gui=self.config.sumo_gui,

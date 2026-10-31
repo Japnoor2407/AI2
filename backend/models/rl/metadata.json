@@ -1,13 +1,146 @@
 {
-  "total_timesteps": 6144,
-  "episode_duration_sec": 300,
-  "simulator": "junction_sim",
+  "total_timesteps": 26624,
+  "episode_duration_sec": 600,
+  "simulator": "auto",
   "environment_type": "junction_sim",
   "n_envs": 1,
   "seed": 42,
-  "training_time_sec": 53.5,
-  "n_episodes_completed": 646,
-  "mean_ep_reward_last20": -1.0366,
+  "training_time_sec": 384.4,
+  "n_episodes_completed": 1210,
+  "mean_ep_reward_last20": 0.1379,
+  "best_checkpoint_retained": true,
+  "training_history": [
+    {
+      "timestep": 1000,
+      "mean_reward": -3.3896,
+      "mean_length": 18.3
+    },
+    {
+      "timestep": 2000,
+      "mean_reward": -2.8134,
+      "mean_length": 18.2
+    },
+    {
+      "timestep": 3000,
+      "mean_reward": -2.2476,
+      "mean_length": 18.4
+    },
+    {
+      "timestep": 4000,
+      "mean_reward": -2.3685,
+      "mean_length": 18.4
+    },
+    {
+      "timestep": 5000,
+      "mean_reward": -1.7209,
+      "mean_length": 18.4
+    },
+    {
+      "timestep": 6000,
+      "mean_reward": -1.5667,
+      "mean_length": 18.3
+    },
+    {
+      "timestep": 7000,
+      "mean_reward": -1.3485,
+      "mean_length": 18.4
+    },
+    {
+      "timestep": 8000,
+      "mean_reward": -1.1408,
+      "mean_length": 18.6
+    },
+    {
+      "timestep": 9000,
+      "mean_reward": -1.0701,
+      "mean_length": 19.6
+    },
+    {
+      "timestep": 10000,
+      "mean_reward": -0.877,
+      "mean_length": 19.1
+    },
+    {
+      "timestep": 11000,
+      "mean_reward": -0.6891,
+      "mean_length": 20.5
+    },
+    {
+      "timestep": 12000,
+      "mean_reward": -0.6464,
+      "mean_length": 21.4
+    },
+    {
+      "timestep": 13000,
+      "mean_reward": -0.6083,
+      "mean_length": 22.2
+    },
+    {
+      "timestep": 14000,
+      "mean_reward": -0.5927,
+      "mean_length": 21.1
+    },
+    {
+      "timestep": 15000,
+      "mean_reward": -0.4748,
+      "mean_length": 22.3
+    },
+    {
+      "timestep": 16000,
+      "mean_reward": -0.485,
+      "mean_length": 22.9
+    },
+    {
+      "timestep": 17000,
+      "mean_reward": -0.3811,
+      "mean_length": 24.2
+    },
+    {
+      "timestep": 18000,
+      "mean_reward": -0.3007,
+      "mean_length": 24.4
+    },
+    {
+      "timestep": 19000,
+      "mean_reward": -0.1656,
+      "mean_length": 25.5
+    },
+    {
+      "timestep": 20000,
+      "mean_reward": -0.09,
+      "mean_length": 26.4
+    },
+    {
+      "timestep": 21000,
+      "mean_reward": -0.1532,
+      "mean_length": 26.8
+    },
+    {
+      "timestep": 22000,
+      "mean_reward": -0.1505,
+      "mean_length": 26.7
+    },
+    {
+      "timestep": 23000,
+      "mean_reward": -0.0193,
+      "mean_length": 28.4
+    },
+    {
+      "timestep": 24000,
+      "mean_reward": 0.0546,
+      "mean_length": 29.1
+    },
+    {
+      "timestep": 25000,
+      "mean_reward": 0.0794,
+      "mean_length": 30.5
+    },
+    {
+      "timestep": 26000,
+      "mean_reward": 0.0941,
+      "mean_length": 30.4
+    }
+  ],
   "hyperparams": {
     "learning_rate": "0.0003",
     "n_steps": "2048",
@@ -22,6 +155,6 @@
     "verbose": "1",
     "policy_kwargs": "{'net_arch': {'pi': [128, 128], 'vf': [128, 128]}}"
   },
-  "saved_at": "2026-10-30T19:31:22.485223",
+  "saved_at": "2026-10-31T10:59:29.600717",
   "model_file": "ppo_traffic_latest.zip"
 }
