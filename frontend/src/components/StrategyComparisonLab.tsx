@@ -4,7 +4,7 @@ import type { ComparisonLabReport, LabHistoryItem } from '../types'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { Trophy, Clock, TrendingUp, ShieldAlert, Award, Download, RefreshCw, CheckCircle2 } from 'lucide-react'
+import { Trophy, Clock, ShieldAlert, Award, Download, RefreshCw, CheckCircle2 } from 'lucide-react'
 
 export default function StrategyComparisonLab() {
   const [durationSec, setDurationSec] = useState<number>(900)
@@ -179,13 +179,17 @@ export default function StrategyComparisonLab() {
               value={scenario}
               onChange={e => {
                 setScenario(e.target.value)
-                setDemandMultiplier(e.target.value === 'heavy' ? 1.5 : e.target.value === 'light' ? 0.7 : 1.0)
+                setDemandMultiplier(
+                  e.target.value === 'heavy' ? 1.5 : 
+                  e.target.value === 'light' ? 0.7 : 1.0
+                )
               }}
               className="w-full bg-slate-800/80 border border-slate-700 rounded-lg px-3 py-2 text-xs font-medium text-slate-200 focus:outline-none focus:border-emerald-500"
             >
               <option value="normal">Normal CCTV Traffic (1.0x)</option>
               <option value="heavy">Rush Hour Congestion (1.5x)</option>
               <option value="light">Off-Peak Free Flow (0.7x)</option>
+              <option value="uneven">Uneven Traffic (1.6x / 0.6x Corridors)</option>
             </select>
           </div>
 
@@ -315,44 +319,48 @@ export default function StrategyComparisonLab() {
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Simulated Time Saved
+                  Simulated Delay Saved
                 </span>
-                <TrendingUp size={16} className="text-cyan-400" />
+                <span className="px-1.5 py-0.5 rounded text-[9px] uppercase font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">
+                  Measured
+                </span>
               </div>
               <div className="text-2xl font-bold text-cyan-400 mt-1.5 font-mono">
-                {Math.round(topMetrics?.total_waiting_time_saved_sec || 0).toLocaleString()}s
+                {(() => {
+                  const vehHrs = topMetrics?.simulated_veh_hours_saved ?? ((topMetrics?.total_waiting_time_saved_sec ?? 0) / 3600)
+                  if (vehHrs >= 1.0) return `${vehHrs.toFixed(2)} veh-hrs`
+                  const min = vehHrs * 60
+                  if (min >= 1.0) return `${min.toFixed(1)} veh-min`
+                  return `${Math.round(topMetrics?.total_waiting_time_saved_sec || 0)} veh-sec`
+                })()}
               </div>
               <div className="text-xs text-slate-400 mt-2">
                 Across <span className="text-white font-bold">{topMetrics?.total_arrived_vehicles.toLocaleString()}</span> vehicles arrived
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
-                Cleared through green: <span className="font-mono text-slate-400">{(topMetrics?.vehicles_processed ?? 0).toLocaleString()}</span>
+                Cleared: <span className="font-mono text-slate-400">{(topMetrics?.vehicles_processed ?? 0).toLocaleString()}</span> · ({Math.round(topMetrics?.total_waiting_time_saved_sec || 0).toLocaleString()} veh-sec)
               </div>
             </div>
 
-            {/* Projected City Impact */}
+            {/* Consistency & Tail Risk (replaces old misleading 12h extrapolation) */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Projected Daily Savings
+                  Consistency &amp; Tail Risk
                 </span>
                 <span className="px-1.5 py-0.5 rounded text-[9px] uppercase font-bold bg-violet-950/80 text-violet-300 border border-violet-700/50">
-                  Estimated
+                  Stability
                 </span>
               </div>
               <div className="text-2xl font-bold text-violet-300 mt-1.5 font-mono">
-                {(() => {
-                  const hrs = topMetrics?.projected_daily_time_saved_hours || 0
-                  if (hrs >= 1.0) return `~${hrs.toFixed(1)} hrs`
-                  if (hrs > 0) return `~${(hrs * 60).toFixed(1)} min`
-                  return '—'
-                })()}
+                {topMetrics?.consistency_score != null ? `${topMetrics.consistency_score}/100` : '—'}
               </div>
-              <div className="text-xs text-slate-400 mt-2">
-                Extrapolated from {report.duration_sec / 60}min test → 12h day
+              <div className="text-xs text-slate-400 mt-2 flex items-center gap-1.5">
+                <span>Winner P95 delay:</span>
+                <span className="font-mono text-slate-200 font-bold">{topMetrics?.p95_wait_sec != null ? `${topMetrics.p95_wait_sec}s` : '—'}</span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                Simulation estimate, not measured
+              <div className="text-[11px] text-slate-400 mt-1">
+                Most consistent: <span className="font-bold text-white">{report.most_consistent_strategy ? (report.results[report.most_consistent_strategy]?.name || report.most_consistent_strategy) : topStrat?.strategy_name}</span>
               </div>
             </div>
           </div>
@@ -407,12 +415,14 @@ export default function StrategyComparisonLab() {
                     <th className="py-3 px-4 font-semibold">Rank</th>
                     <th className="py-3 px-4 font-semibold">Strategy</th>
                     <th className="py-3 px-4 font-semibold">Efficiency Score</th>
-                    <th className="py-3 px-4 font-semibold">Avg Waiting Time</th>
+                    <th className="py-3 px-4 font-semibold">Avg Delay</th>
+                    <th className="py-3 px-4 font-semibold">P95 Delay</th>
                     <th className="py-3 px-4 font-semibold">Time Saved / Veh</th>
-                    <th className="py-3 px-4 font-semibold">Simulated Time Saved</th>
+                    <th className="py-3 px-4 font-semibold">Simulated Delay Saved</th>
                     <th className="py-3 px-4 font-semibold">Queue Reduction</th>
                     <th className="py-3 px-4 font-semibold">Vehicles Processed</th>
                     <th className="py-3 px-4 font-semibold">Starvations</th>
+                    <th className="py-3 px-4 font-semibold">Consistency</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
@@ -442,9 +452,19 @@ export default function StrategyComparisonLab() {
                         <td className="py-3.5 px-4">
                           <div className="font-bold text-white text-sm flex items-center gap-2">
                             {m.name}
-                            {r.strategy_key === 'deep_rl' && m.avg_waiting_time_saved_per_vehicle_sec < -20 && (
+                            {r.strategy_key === 'deep_rl' && (m.ai_status === 'model_unavailable' || m.performance_verdict?.includes('Unavailable')) && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-950/80 border border-rose-600/50 text-rose-300 whitespace-nowrap">
+                                ✕ Model Missing
+                              </span>
+                            )}
+                            {r.strategy_key === 'deep_rl' && (m.ai_status === 'undertrained' || m.performance_verdict?.includes('Undertrained') || m.avg_waiting_time_saved_per_vehicle_sec < -20) && (
                               <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-950/80 border border-amber-600/50 text-amber-300 whitespace-nowrap">
-                                ⚠ Undertrained
+                                ⚠ NOT READY (Undertrained)
+                              </span>
+                            )}
+                            {r.strategy_key === 'deep_rl' && m.ai_status === 'evaluated' && !m.performance_verdict?.includes('Undertrained') && m.avg_waiting_time_saved_per_vehicle_sec >= -20 && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-950/80 border border-emerald-600/50 text-emerald-300 whitespace-nowrap">
+                                ✓ Evaluated
                               </span>
                             )}
                           </div>
@@ -470,6 +490,9 @@ export default function StrategyComparisonLab() {
                         <td className="py-3.5 px-4 font-mono text-white text-xs">
                           {m.average_wait_sec}s
                         </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300 text-xs">
+                          {m.p95_wait_sec != null ? `${m.p95_wait_sec}s` : '—'}
+                        </td>
                         <td className="py-3.5 px-4 font-mono">
                           <span
                             className={`font-bold ${
@@ -485,7 +508,11 @@ export default function StrategyComparisonLab() {
                           </span>
                         </td>
                         <td className="py-3.5 px-4 font-mono text-slate-300">
-                          {Math.round(m.total_waiting_time_saved_sec).toLocaleString()}s
+                          {(() => {
+                            const vehHrs = m.simulated_veh_hours_saved ?? ((m.total_waiting_time_saved_sec ?? 0) / 3600)
+                            if (vehHrs >= 1.0) return `${vehHrs.toFixed(2)} veh-hrs`
+                            return `${Math.round(m.total_waiting_time_saved_sec).toLocaleString()} veh-s`
+                          })()}
                         </td>
                         <td className="py-3.5 px-4 font-mono">
                           <span
@@ -514,6 +541,9 @@ export default function StrategyComparisonLab() {
                           >
                             {m.starvation_occurrences === 0 ? '0 (None)' : m.starvation_occurrences}
                           </span>
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300 text-xs">
+                          {m.consistency_score != null ? `${m.consistency_score}/100` : '—'}
                         </td>
                       </tr>
                     )

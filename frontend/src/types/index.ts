@@ -300,7 +300,9 @@ export interface StrategyMetrics {
   mean_queue_pcu: number
   max_queue_pcu: number
   average_wait_sec: number
-  p95_wait_sec: number
+  median_wait_sec?: number
+  p95_wait_sec?: number
+  consistency_score?: number
   total_throughput_pcu: number
   total_arrived_vehicles: number
   starvation_occurrences: number
@@ -308,8 +310,12 @@ export interface StrategyMetrics {
   avg_waiting_time_saved_per_vehicle_sec: number
   total_waiting_time_saved_sec: number
   simulated_time_saved_sec?: number
+  simulated_veh_hours_saved?: number
   projected_hourly_time_saved_min?: number
   projected_daily_time_saved_hours?: number
+  projected_daily_veh_hours?: number
+  is_preliminary_projection?: boolean
+  ai_status?: string
   vehicles_processed?: number
   waiting_time_saved_percent: number
   queue_reduction_percent: number
@@ -338,6 +344,9 @@ export interface ComparisonLabReport {
   strategies_tested: string[]
   results: Record<string, StrategyMetrics>
   rankings: StrategyRanking[]
+  winner_key?: string
+  most_consistent_strategy?: string
+  most_consistent_score?: number
   plain_english_summary: string
   time_series?: Record<string, Array<{
     step: number

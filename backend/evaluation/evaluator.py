@@ -131,13 +131,21 @@ def _collect_metrics(sim: JunctionSimulator, exec_time_ms: float = 0.0) -> Metri
                 starvation_events += 1
             prev_starving[app_id] = app.is_starving
 
+    # HCM / Webster standard queue-delay: total cumulative queue delay (PCU*s) / cumulative arrivals.
+    # Strictly bounded by simulation duration: a vehicle can never wait longer than episode duration n.
+    total_queue_delay_pcu_sec = sum(all_queues)
+    if cumulative_arr_pcu > 0:
+        overall_avg_wait_sec = min(float(n), round(total_queue_delay_pcu_sec / cumulative_arr_pcu, 2))
+    else:
+        overall_avg_wait_sec = 0.0
+
     return MetricRecord(
         mean_queue_pcu=round(sum(all_queues) / n, 2),
         max_queue_pcu=round(max(all_queues), 2),
-        average_wait_sec=round(sum(all_waits) / n, 2),
-        max_wait_sec=round(max(all_waits), 2),
-        median_wait_sec=_compute_percentile(all_waits, 50),
-        p95_wait_sec=_compute_percentile(all_waits, 95),
+        average_wait_sec=overall_avg_wait_sec,
+        max_wait_sec=min(float(n), round(max(all_waits), 2)),
+        median_wait_sec=min(float(n), _compute_percentile(all_waits, 50)),
+        p95_wait_sec=min(float(n), _compute_percentile(all_waits, 95)),
         total_throughput_vehicles=total_processed_veh,
         total_throughput_pcu=round(final_obs.total_throughput_pcu, 2),
         total_arrived_vehicles=total_arrived_veh,

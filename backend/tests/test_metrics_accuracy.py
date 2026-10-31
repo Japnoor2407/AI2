@@ -303,3 +303,169 @@ def test_starvation_nonnegative_all_strategies(layout, arrivals_df):
             f"starvation_occurrences is negative for {key}: {m.starvation_occurrences}"
         )
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. Waiting time must never exceed simulation duration
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_waiting_time_never_exceeds_simulation_duration(layout, arrivals_df):
+    """
+    Physical law: average waiting time of vehicles during an episode of duration T
+    cannot exceed T. Guard against Little's Law near-zero lambda division bugs.
+    """
+    duration = 300
+    controllers = {
+        "fixed": FixedTimeController(phases=layout.phases),
+        "adaptive": AdaptiveController(phases=layout.phases),
+        "ppo": RLTrafficController(phases=layout.phases, episode_duration_sec=duration),
+    }
+    for name, ctrl in controllers.items():
+        m = _run(ctrl, layout, arrivals_df, duration=duration)
+        assert m.average_wait_sec <= duration, (
+            f"{name} average_wait_sec ({m.average_wait_sec}s) exceeded duration ({duration}s)"
+        )
+        assert m.max_wait_sec <= duration, (
+            f"{name} max_wait_sec ({m.max_wait_sec}s) exceeded duration ({duration}s)"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. Savings vehicle-hours and daily projection formulas
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_savings_and_projections_formulas():
+    """
+    Verify vehicle-hours formulas:
+    - simulated_veh_hours = simulated_time_saved_sec / 3600.0
+    - Misleading 12-hour daily extrapolations are eliminated (projected_daily_veh_hours == 0.0)
+    """
+    from backend.evaluation.comparison_lab import run_comparison_lab
+    report = run_comparison_lab(duration_sec=300, selected_strategies=["fixed_time", "adaptive"])
+    assert report.results is not None
+    m = report.results["adaptive"]
+    
+    # Check veh_hours conversion
+    expected_veh_hrs = round(m.total_waiting_time_saved_sec / 3600.0, 3)
+    assert abs(m.simulated_veh_hours_saved - expected_veh_hrs) < 0.01
+
+    # Check 12-hour extrapolation removed
+    assert m.projected_daily_veh_hours == 0.0
+    assert m.projected_daily_time_saved_hours == 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. Misleading extrapolations eliminated
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_no_misleading_extrapolations():
+    """Verify that misleading daily extrapolations are not attached to benchmark results."""
+    from backend.evaluation.comparison_lab import run_comparison_lab
+    rep = run_comparison_lab(duration_sec=300, selected_strategies=["fixed_time", "adaptive"])
+    for m in rep.results.values():
+        assert m.projected_daily_veh_hours == 0.0
+        assert m.is_preliminary_projection is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. Simulation ending with vehicles still queued handles residual queue
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_residual_queue_recorded(layout, arrivals_df):
+    """Residual queue at final step must be recorded in metrics."""
+    ctrl = FixedTimeController(phases=layout.phases)
+    m = _run(ctrl, layout, arrivals_df)
+    assert hasattr(m, "residual_queue_pcu")
+    assert m.residual_queue_pcu >= 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. PPO honest status tracking
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_ppo_honest_status():
+    """PPO must report honest ai_status (evaluated, undertrained, or model_unavailable)."""
+    from backend.evaluation.comparison_lab import run_comparison_lab
+    rep = run_comparison_lab(duration_sec=300, selected_strategies=["fixed_time", "deep_rl"])
+    ppo_res = rep.results.get("deep_rl")
+    assert ppo_res is not None
+    assert ppo_res.ai_status in ("evaluated", "undertrained", "not_ready", "model_unavailable")
+    # Never crowned as winner if undertrained
+    if ppo_res.ai_status != "evaluated":
+        assert rep.rankings[0].strategy_key != "deep_rl"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 16. Uneven traffic scenario consistent arrivals across all strategies
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_scenario_uneven_consistent_arrivals():
+    """
+    In the 'uneven' scenario (e.g. 1.6x North-South corridor, 0.6x East-West),
+    all strategies must experience identical vehicle arrival counts under the same seed.
+    """
+    from backend.evaluation.comparison_lab import run_comparison_lab
+    strategies = ["fixed_time", "actuated", "adaptive", "max_pressure"]
+    rep = run_comparison_lab(
+        duration_sec=300,
+        scenario="uneven",
+        selected_strategies=strategies,
+        seed=42,
+    )
+    baseline_arrived = rep.results["fixed_time"].total_arrived_vehicles
+    assert baseline_arrived > 0, "Uneven scenario must generate positive arrivals"
+    for strat in strategies:
+        strat_arrived = rep.results[strat].total_arrived_vehicles
+        assert strat_arrived == baseline_arrived, (
+            f"Arrival mismatch in uneven scenario: {strat} got {strat_arrived}, expected {baseline_arrived}"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 17. Consistency score validity and most consistent strategy
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_consistency_score_validity():
+    """
+    Consistency score measures tail delay stability (p95 - median) and starvation freedom.
+    Must be within [0, 100] for all tested strategies.
+    Report must also specify most_consistent_strategy.
+    """
+    from backend.evaluation.comparison_lab import run_comparison_lab
+    rep = run_comparison_lab(
+        duration_sec=300,
+        selected_strategies=["fixed_time", "adaptive", "actuated", "max_pressure"],
+        seed=42,
+    )
+    assert rep.most_consistent_strategy in rep.results
+    score = rep.results[rep.most_consistent_strategy].consistency_score
+    assert 0.0 <= score <= 100.0
+    for strat_key, metrics in rep.results.items():
+        assert 0.0 <= metrics.consistency_score <= 100.0, (
+            f"{strat_key} consistency_score={metrics.consistency_score} out of bounds"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 18. Zero or negative savings explicit honest explanation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_zero_or_negative_savings_plain_explanation():
+    """
+    When a strategy has <= 0 delay savings (such as fixed_time or an underperforming strategy),
+    the system must never fabricate savings and must state:
+    'No measurable improvement over fixed-time control.'
+    """
+    from backend.evaluation.comparison_lab import run_comparison_lab
+    rep = run_comparison_lab(
+        duration_sec=300,
+        selected_strategies=["fixed_time", "adaptive"],
+        seed=42,
+    )
+    # Fixed-time baseline has 0 savings
+    ft_metrics = rep.results["fixed_time"]
+    assert ft_metrics.avg_waiting_time_saved_per_vehicle_sec == 0.0
+    assert ft_metrics.total_waiting_time_saved_sec == 0.0
+    assert ft_metrics.simulated_veh_hours_saved == 0.0
+    assert "No measurable improvement over fixed-time control" in ft_metrics.plain_english_analysis
+

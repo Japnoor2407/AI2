@@ -157,10 +157,11 @@ def train(
     ]
     vec_env = DummyVecEnv(env_fns)
 
-    # Observation normalisation (running mean/std) — helps PPO convergence
+    # Reward normalization for training stability; norm_obs is False because
+    # ObservationBuilder already outputs bounded, normalized [0.0, 1.0] features.
     vec_env = VecNormalize(
         vec_env,
-        norm_obs=True,
+        norm_obs=False,
         norm_reward=True,
         clip_obs=10.0,
         clip_reward=10.0,
